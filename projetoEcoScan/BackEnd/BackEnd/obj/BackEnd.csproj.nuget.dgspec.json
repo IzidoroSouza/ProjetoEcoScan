@@ -1,30 +1,30 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\JJUNIOR\\projetoEcoScan\\BackEnd\\backend\\BackEnd.csproj": {}
+    "C:\\Users\\JJUNIOR\\EcoScan\\projetoEcoScan\\BackEnd\\BackEnd\\BackEnd.csproj": {}
   },
   "projects": {
-    "C:\\Users\\JJUNIOR\\projetoEcoScan\\BackEnd\\backend\\BackEnd.csproj": {
+    "C:\\Users\\JJUNIOR\\EcoScan\\projetoEcoScan\\BackEnd\\BackEnd\\BackEnd.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\JJUNIOR\\projetoEcoScan\\BackEnd\\backend\\BackEnd.csproj",
+        "projectUniqueName": "C:\\Users\\JJUNIOR\\EcoScan\\projetoEcoScan\\BackEnd\\BackEnd\\BackEnd.csproj",
         "projectName": "BackEnd",
-        "projectPath": "C:\\Users\\JJUNIOR\\projetoEcoScan\\BackEnd\\backend\\BackEnd.csproj",
+        "projectPath": "C:\\Users\\JJUNIOR\\EcoScan\\projetoEcoScan\\BackEnd\\BackEnd\\BackEnd.csproj",
         "packagesPath": "C:\\Users\\JJUNIOR\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\JJUNIOR\\projetoEcoScan\\BackEnd\\backend\\obj\\",
+        "outputPath": "C:\\Users\\JJUNIOR\\EcoScan\\projetoEcoScan\\BackEnd\\BackEnd\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\JJUNIOR\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
-          "net6.0"
+          "net8.0"
         ],
         "sources": {
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
-          "net6.0": {
-            "targetAlias": "net6.0",
+          "net8.0": {
+            "targetAlias": "net8.0",
             "projectReferences": {}
           }
         },
@@ -32,12 +32,37 @@
           "warnAsError": [
             "NU1605"
           ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
         }
       },
       "frameworks": {
-        "net6.0": {
-          "targetAlias": "net6.0",
+        "net8.0": {
+          "targetAlias": "net8.0",
           "dependencies": {
+            "Microsoft.Data.Sqlite": {
+              "target": "Package",
+              "version": "[8.0.4, )"
+            },
+            "Microsoft.EntityFrameworkCore.Design": {
+              "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
+              "suppressParent": "All",
+              "target": "Package",
+              "version": "[8.0.4, )"
+            },
+            "Microsoft.EntityFrameworkCore.Sqlite": {
+              "target": "Package",
+              "version": "[8.0.4, )"
+            },
+            "Microsoft.EntityFrameworkCore.Tools": {
+              "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
+              "suppressParent": "All",
+              "target": "Package",
+              "version": "[8.0.4, )"
+            },
             "Swashbuckle.AspNetCore": {
               "target": "Package",
               "version": "[6.5.0, )"
@@ -62,7 +87,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\6.0.428\\RuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.410/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

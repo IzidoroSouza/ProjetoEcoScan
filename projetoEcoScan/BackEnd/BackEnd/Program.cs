@@ -1,52 +1,91 @@
+using BackEnd.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using System.Text.Json.Serialization;
 
-
-// BackEnd/Program.cs
 var builder = WebApplication.CreateBuilder(args);
 
+// Configuração do Entity Framework Core
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseSqlite(connectionString));
+
+// Configuração do HttpClientFactory
+builder.Services.AddHttpClient();
+
 // Adicionar serviços ao container.
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+    });
 
 // Configuração do CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowReactNativeApp", // Dê um nome para a política
-        builder =>
+    options.AddPolicy("AllowReactNativeApp",
+        policyBuilder =>
         {
-            builder.AllowAnyOrigin() // Para desenvolvimento. Em produção, seja mais específico.
+            policyBuilder.AllowAnyOrigin()
                    .AllowAnyHeader()
                    .AllowAnyMethod();
         });
 });
 
-
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+
+// Aplicar Migrations Automaticamente e Seeding
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    try
+    {
+        var context = services.GetRequiredService<AppDbContext>();
+        if (context.Database.GetPendingMigrations().Any())
+        {
+            context.Database.Migrate();
+            Console.WriteLine("Database migrations applied.");
+        }
+        else
+        {
+            Console.WriteLine("Database is up to date. No migrations to apply.");
+        }
+    }
+    catch (Exception ex)
+    {
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "An error occurred while migrating or initializing the database.");
+    }
+}
 
 // Configure o pipeline de requisições HTTP.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    app.UseDeveloperExceptionPage();
 }
-app.Urls.Clear();
-app.Urls.Add("http://localhost:5291");        // Para acesso do próprio PC
-app.Urls.Add("http://COLOCAR_IP:5291"); //ACESSO NO CELULAR
-// Se quiser manter o 0.0.0.0 como fallback geral, pode adicionar, mas o IP explícito é bom para este teste
-// app.Urls.Add("http://0.0.0.0:5291");
-app.Urls.Add("https://localhost:7299");       // Se você usa HTTPS no localhost
-// ...
-app.Run();
-app.UseHttpsRedirection(); // Mantenha se estiver usando HTTPS
+else
+{
+    // app.UseExceptionHandler("/Error");
+    // app.UseHsts();
+}
 
-app.UseRouting(); // Adicionado para garantir que o roteamento funcione antes do CORS
+// app.UseHttpsRedirection();
 
-app.UseCors("AllowReactNativeApp"); // Aplicar a política CORS
+app.UseRouting();
+
+app.UseCors("AllowReactNativeApp");
 
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.Urls.Clear();
+app.Urls.Add("http://localhost:5291");
+app.Urls.Add("http://INSERIR_IP:5291"); // Substitua pelo seu IP de desenvolvimento na rede local
 
 app.Run();

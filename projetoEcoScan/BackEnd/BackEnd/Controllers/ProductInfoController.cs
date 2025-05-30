@@ -1,83 +1,218 @@
-// BackEnd/Controllers/ProductInfoController.cs
+using BackEnd.Data;
+using BackEnd.Models;
 using Microsoft.AspNetCore.Mvc;
-using System.Collections.Generic;
+using Microsoft.EntityFrameworkCore;
+using System.Net.Http;
+using System.Text.Json;
+using System.Text.Json.Serialization; // Para JsonPropertyName
+using System.Threading.Tasks;
 using System.Linq;
+using System.Collections.Generic; // Para List
 
 namespace BackEnd.Controllers
 {
-    public class ProductInfo
+    // --- Estruturas para desserializar a resposta da API OpenFoodFacts ---
+    public class OpenFoodFactsPackagingDetail
     {
-        public string? Barcode { get; set; } // Adicionado ?
-        public string? ProductName { get; set; } // Adicionado ?
-        public string? Material { get; set; } // Adicionado ?
-        public string? DisposalTips { get; set; } // Adicionado ?
-        public string? RecyclingInfo { get; set; } // Adicionado ?
-        public string? SustainabilityImpact { get; set; } // Adicionado ?
+        [JsonPropertyName("material")]
+        public string? Material { get; set; } // Ex: "en:plastic"
+
+        [JsonPropertyName("shape")]
+        public string? Shape { get; set; } // Ex: "pt:Squeeze"
+    }
+
+    public class OpenFoodFactsProductDetail
+    {
+        [JsonPropertyName("product_name")]
+        public string? ProductName { get; set; }
+
+        [JsonPropertyName("product_name_pt")]
+        public string? ProductNamePt { get; set; }
+
+        [JsonPropertyName("packaging_tags")]
+        public List<string>? PackagingTags { get; set; }
+
+        [JsonPropertyName("packaging")]
+        public string? Packaging { get; set; }
+
+        [JsonPropertyName("packagings")]
+        public List<OpenFoodFactsPackagingDetail>? Packagings { get; set; }
+    }
+
+    public class OpenFoodFactsApiResponse
+    {
+        [JsonPropertyName("code")]
+        public string? Code { get; set; }
+
+        [JsonPropertyName("status_verbose")]
+        public string? StatusVerbose { get; set; }
+
+        [JsonPropertyName("product")]
+        public OpenFoodFactsProductDetail? Product { get; set; }
+    }
+
+    // --- DTO para a resposta do seu backend ao frontend ---
+    public class EcoProductInfoResponse
+    {
+        public string Barcode { get; set; } = string.Empty;
+        public string ProductName { get; set; } = string.Empty;
+        public string Material { get; set; } = string.Empty;
+        public string? DisposalTips { get; set; }
+        public string? RecyclingInfo { get; set; }
+        public string? SustainabilityImpact { get; set; }
+        public string DataSource { get; set; } = string.Empty;
+        public bool SuggestionNeeded { get; set; } = false;
     }
 
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/productinfo")]
     public class ProductInfoController : ControllerBase
     {
-        // Simulação de um banco de dados em memória
-        private static readonly List<ProductInfo> _products = new List<ProductInfo>
-        {
-            new ProductInfo
-            {
-                Barcode = "7891000315507", // Exemplo: Código de barras de uma Coca-Cola lata
-                ProductName = "Refrigerante em Lata",
-                Material = "Alumínio (lata), Tinta (rótulo)",
-                DisposalTips = "Lave a lata antes de descartar para evitar odores e atrair vetores. Amasse a lata para reduzir o volume.",
-                RecyclingInfo = "O alumínio é 100% reciclável e pode ser reciclado infinitas vezes. Separe para a coleta seletiva.",
-                SustainabilityImpact = "Reciclar alumínio economiza cerca de 95% da energia necessária para produzir alumínio primário."
-            },
-            new ProductInfo
-            {
-                Barcode = "7891991010769", // Exemplo: Código de barras de uma Garrafa PET de Água
-                ProductName = "Água Mineral em Garrafa PET",
-                Material = "Plástico PET (garrafa), Plástico PP (tampa), Papel/Plástico (rótulo)",
-                DisposalTips = "Esvazie completamente a garrafa. Amasse para reduzir volume. Se possível, separe a tampa e o rótulo, pois podem ter processos de reciclagem diferentes.",
-                RecyclingInfo = "O PET é reciclável. Procure pontos de coleta seletiva. A tampa (geralmente PP ou PEAD) também é reciclável.",
-                SustainabilityImpact = "A reciclagem de PET reduz a extração de petróleo e o volume em aterros sanitários."
-            },
-            new ProductInfo
-            {
-                Barcode = "1234567890123", // Código genérico para teste
-                ProductName = "Produto de Papelão",
-                Material = "Papelão ondulado",
-                DisposalTips = "Desmonte a caixa para reduzir o volume. Mantenha seco e limpo.",
-                RecyclingInfo = "O papelão é amplamente reciclável. Certifique-se de que não está contaminado com gordura ou umidade excessiva.",
-                SustainabilityImpact = "Reciclar papelão salva árvores, água e energia."
-            }
-            // Adicione mais produtos aqui
-        };
+        private readonly AppDbContext _context;
+        private readonly IHttpClientFactory _httpClientFactory;
 
-        [HttpGet] // Rota: /api/productinfo?barcode=CODIGO_AQUI
-        public ActionResult<ProductInfo> GetProductInfoByBarcode([FromQuery] string barcode)
+        public ProductInfoController(AppDbContext context, IHttpClientFactory httpClientFactory)
+        {
+            _context = context;
+            _httpClientFactory = httpClientFactory;
+        }
+
+        [HttpGet]
+        public async Task<ActionResult<EcoProductInfoResponse>> GetProductInfoByBarcode([FromQuery] string barcode)
         {
             if (string.IsNullOrWhiteSpace(barcode))
             {
-                return BadRequest("O código de barras não pode ser vazio.");
+                return BadRequest("Barcode cannot be empty.");
             }
 
-            var product = _products.FirstOrDefault(p => p.Barcode == barcode);
+            var httpClient = _httpClientFactory.CreateClient();
+            httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("EcoScanApp/1.0 (seu.email@example.com)");
+            var apiUrl = $"https://world.openfoodfacts.org/api/v2/product/{barcode}.json?fields=code,product_name,product_name_pt,packaging_tags,packaging,packagings,status_verbose";
 
-            if (product == null)
+            OpenFoodFactsApiResponse? apiResponse = null;
+            try
             {
-                // Para fins de teste, se não encontrar, retorna um produto genérico de "não encontrado"
-                // Em uma aplicação real, você retornaria NotFound() ou uma mensagem específica.
-                return Ok(new ProductInfo {
-                    Barcode = barcode,
-                    ProductName = "Produto não cadastrado",
-                    Material = "Desconhecido",
-                    DisposalTips = "Informações de descarte não disponíveis para este produto. Consulte o fabricante ou a embalagem.",
-                    RecyclingInfo = "Verifique a simbologia de reciclagem na embalagem.",
-                    SustainabilityImpact = "Consumir conscientemente é o primeiro passo."
-                });
-                // return NotFound($"Produto com código de barras '{barcode}' não encontrado.");
+                var httpResponse = await httpClient.GetAsync(apiUrl);
+                if (httpResponse.IsSuccessStatusCode)
+                {
+                    var jsonResponse = await httpResponse.Content.ReadAsStringAsync();
+                    apiResponse = JsonSerializer.Deserialize<OpenFoodFactsApiResponse>(jsonResponse);
+                }
+                else
+                {
+                    Console.WriteLine($"OpenFoodFacts API error for barcode {barcode}: {httpResponse.StatusCode}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error calling OpenFoodFacts API for barcode {barcode}: {ex.Message}");
             }
 
-            return Ok(product);
+            if (apiResponse != null && apiResponse.StatusVerbose == "product found" && apiResponse.Product != null)
+            {
+                var productName = !string.IsNullOrWhiteSpace(apiResponse.Product.ProductNamePt) ? apiResponse.Product.ProductNamePt : apiResponse.Product.ProductName;
+                productName ??= "Nome não fornecido pela API";
+
+                string identifiedMaterialKey = "unknown";
+                string displayMaterial = "Desconhecido (API)";
+
+                if (apiResponse.Product.Packagings != null && apiResponse.Product.Packagings.Any())
+                {
+                    var firstPackaging = apiResponse.Product.Packagings.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.Material));
+                    if (firstPackaging != null)
+                    {
+                        identifiedMaterialKey = firstPackaging.Material!; // Ex: "en:plastic"
+                        displayMaterial = identifiedMaterialKey.Contains(':') ? identifiedMaterialKey.Split(':')[1] : identifiedMaterialKey;
+                        if(!string.IsNullOrEmpty(displayMaterial))
+                            displayMaterial = char.ToUpper(displayMaterial[0]) + displayMaterial.Substring(1);
+
+                        if (!string.IsNullOrWhiteSpace(firstPackaging.Shape))
+                        {
+                            var shapeClean = firstPackaging.Shape.Contains(':') ? firstPackaging.Shape.Split(':')[1] : firstPackaging.Shape;
+                             if(!string.IsNullOrEmpty(shapeClean))
+                                shapeClean = char.ToUpper(shapeClean[0]) + shapeClean.Substring(1);
+                            displayMaterial += $" ({shapeClean})";
+                        }
+                    }
+                }
+                else if (apiResponse.Product.PackagingTags != null && apiResponse.Product.PackagingTags.Any())
+                {
+                    identifiedMaterialKey = apiResponse.Product.PackagingTags
+                        .FirstOrDefault(tag => tag.StartsWith("en:") || tag.StartsWith("pt:")) ?? apiResponse.Product.PackagingTags.First();
+                    displayMaterial = identifiedMaterialKey.Contains(':') ? identifiedMaterialKey.Split(':')[1] : identifiedMaterialKey;
+                     if(!string.IsNullOrEmpty(displayMaterial))
+                        displayMaterial = char.ToUpper(displayMaterial[0]) + displayMaterial.Substring(1);
+                }
+                else if (!string.IsNullOrWhiteSpace(apiResponse.Product.Packaging))
+                {
+                    displayMaterial = apiResponse.Product.Packaging;
+                    if (displayMaterial.ToLower().Contains("plástico") || displayMaterial.ToLower().Contains("plastic")) identifiedMaterialKey = "en:plastic";
+                    else if (displayMaterial.ToLower().Contains("vidro") || displayMaterial.ToLower().Contains("glass")) identifiedMaterialKey = "en:glass";
+                    else if (displayMaterial.ToLower().Contains("alumínio") || displayMaterial.ToLower().Contains("aluminium")) identifiedMaterialKey = "en:aluminium";
+                    else if (displayMaterial.ToLower().Contains("papelão") || displayMaterial.ToLower().Contains("cardboard")) identifiedMaterialKey = "en:cardboard";
+                    else if (displayMaterial.ToLower().Contains("papel") || displayMaterial.ToLower().Contains("paper")) identifiedMaterialKey = "en:paper";
+                }
+
+                var materialGuide = await _context.MaterialRecyclingGuides
+                                        .FirstOrDefaultAsync(g => g.MaterialNameKey.ToLower() == identifiedMaterialKey.ToLower());
+
+                if (materialGuide != null)
+                {
+                    return Ok(new EcoProductInfoResponse
+                    {
+                        Barcode = apiResponse.Code ?? barcode,
+                        ProductName = productName,
+                        Material = materialGuide.DisplayMaterialName,
+                        DisposalTips = materialGuide.DisposalTips,
+                        RecyclingInfo = materialGuide.RecyclingInfo,
+                        SustainabilityImpact = materialGuide.SustainabilityImpact,
+                        DataSource = "API_DB_Guide",
+                        SuggestionNeeded = false
+                    });
+                }
+                else
+                {
+                    return Ok(new EcoProductInfoResponse
+                    {
+                        Barcode = apiResponse.Code ?? barcode,
+                        ProductName = productName,
+                        Material = displayMaterial,
+                        DisposalTips = "Guia de descarte não encontrado para este material.",
+                        RecyclingInfo = "Guia de reciclagem não encontrado para este material.",
+                        SustainabilityImpact = "Guia de sustentabilidade não encontrado para este material.",
+                        DataSource = "API_No_Guide_For_Material",
+                        SuggestionNeeded = true
+                    });
+                }
+            }
+
+            var dbProduct = await _context.Products.FindAsync(barcode);
+            if (dbProduct != null)
+            {
+                return Ok(new EcoProductInfoResponse
+                {
+                    Barcode = dbProduct.Barcode,
+                    ProductName = dbProduct.ProductName,
+                    Material = dbProduct.Material,
+                    DisposalTips = dbProduct.DisposalTips,
+                    RecyclingInfo = dbProduct.RecyclingInfo,
+                    SustainabilityImpact = dbProduct.SustainabilityImpact,
+                    DataSource = "DB_Product",
+                    SuggestionNeeded = false
+                });
+            }
+
+            return Ok(new EcoProductInfoResponse
+            {
+                Barcode = barcode,
+                ProductName = (apiResponse?.Product?.ProductNamePt ?? apiResponse?.Product?.ProductName) ?? "Produto não encontrado",
+                Material = "Material não identificado",
+                DisposalTips = null,
+                RecyclingInfo = null,
+                SustainabilityImpact = null,
+                DataSource = "Not_Found_Everywhere",
+                SuggestionNeeded = true
+            });
         }
     }
 }
