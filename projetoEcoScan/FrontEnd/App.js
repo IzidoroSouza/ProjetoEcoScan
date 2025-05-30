@@ -1,508 +1,281 @@
 // FrontEnd/App.js
 import React, { useState, useEffect } from 'react';
-import { Text, View, StyleSheet, Alert, Linking, Button, ActivityIndicator, ScrollView, TextInput } from 'react-native';
+import { View, Text, Alert, Linking, Button, ActivityIndicator, ScrollView } from 'react-native';
 import { Camera as CameraUtils, CameraView, CameraType as ActualCameraType } from 'expo-camera';
 
-const Camera = CameraView;
+// Importações de Componentes e Estilos
+import ProductDisplay from './src/components/ProductDisplay';
+import SuggestionForm from './src/components/SuggestionForm';
+import { globalStyles, cameraScreenStyles, colors } from './src/styles/AppStyles';
+
+// Expo Camera specific imports
+const ExpoCameraComponent = CameraView;
 const requestCameraPermissions = CameraUtils.requestCameraPermissionsAsync;
-const CameraType = ActualCameraType;
+const ExpoCameraType = ActualCameraType;
 
-// --- ATENÇÃO: Configure esta URL para o seu backend ---
-const BACKEND_URL = 'http://ISERIR_IP:5291'; // Substitua pelo seu IP e porta corretos
-// --- ---------------------------------------------- ---
-
-const initialSuggestionData = {
-    barcode: '',
-    productName: '',
-    material: '',
-    disposalTips: '',
-    recyclingInfo: '',
-    sustainabilityImpact: ''
+// --- Configurações ---
+const BACKEND_URL = 'http://INSERIR_IP:5291'; // CONFIRME SEU IP E PORTA
+const initialSuggestionDataState = {
+    barcode: '', productName: '', material: '',
+    disposalTips: '', recyclingInfo: '', sustainabilityImpact: ''
 };
 
+// --- Componente Principal ---
 export default function App() {
+    // Estados da Aplicação
     const [hasPermission, setHasPermission] = useState(null);
     const [cameraActive, setCameraActive] = useState(false);
-    const [scannedData, setScannedData] = useState(null);
-    const [productInfo, setProductInfo] = useState(null);
+    const [scannedData, setScannedData] = useState(null); // Último barcode escaneado
+    const [productInfo, setProductInfo] = useState(null); // Dados do produto para exibição
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [userMessage, setUserMessage] = useState(null); // Para mensagens como "Produto não encontrado"
-
+    const [userMessage, setUserMessage] = useState(null); // Mensagens para o usuário
     const [showSuggestionForm, setShowSuggestionForm] = useState(false);
-    const [suggestionData, setSuggestionData] = useState(initialSuggestionData);
+    const [suggestionData, setSuggestionData] = useState(initialSuggestionDataState);
 
+    // Efeito para solicitar permissão da câmera
     useEffect(() => {
-        const getPerms = async () => {
-            console.log('Solicitando permissão da câmera...');
+        const getCameraPermissions = async () => {
             try {
                 if (typeof requestCameraPermissions !== 'function') {
-                    console.error("ERRO: requestCameraPermissions não é uma função!");
-                    Alert.alert("Erro de Configuração", "A função para solicitar permissão da câmera não foi encontrada.");
-                    setHasPermission(false);
-                    return;
+                    Alert.alert("Erro de Configuração", "Função de permissão da câmera não encontrada.");
+                    setHasPermission(false); return;
                 }
                 const { status } = await requestCameraPermissions();
                 setHasPermission(status === 'granted');
                 if (status !== 'granted') {
-                    Alert.alert(
-                        "Permissão Necessária",
-                        "Precisamos da sua permissão para usar a câmera para escanear códigos de barras."
-                    );
+                    Alert.alert("Permissão Necessária", "A permissão da câmera é necessária para escanear códigos.");
                 }
             } catch (err) {
-                console.error('Erro ao solicitar permissões:', err);
-                Alert.alert("Erro", "Ocorreu um erro ao solicitar permissão da câmera.");
+                Alert.alert("Erro de Permissão", "Ocorreu um erro ao solicitar permissão da câmera.");
                 setHasPermission(false);
             }
         };
-        getPerms();
+        getCameraPermissions();
     }, []);
 
-    const resetState = (keepScannedData = false) => {
+    // Função para resetar estados
+    const resetUIState = (keepLastScan = false) => {
         setProductInfo(null);
-        if (!keepScannedData) {
-            setScannedData(null);
-        }
+        if (!keepLastScan) setScannedData(null);
         setError(null);
-        setUserMessage(null); // Limpa a mensagem do usuário
+        setUserMessage(null);
         setShowSuggestionForm(false);
-        setSuggestionData(initialSuggestionData);
+        setSuggestionData(initialSuggestionDataState);
     };
 
-    const handleBarCodeScanned = async ({ type, data }) => {
-        if (isLoading) return;
+    // --- Lógica de Interação com Backend ---
+    const fetchProductInformation = async (barcode) => {
+        const requestUrl = `${BACKEND_URL}/api/productinfo?barcode=${barcode}`;
+        console.log(`FETCH: ${requestUrl}`);
+        const response = await fetch(requestUrl);
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Backend Error: ${response.status} - ${errorText}`);
+            throw new Error(`Erro do servidor: ${response.status}`);
+        }
+        return await response.json();
+    };
+
+    const submitProductSuggestion = async (dataToSubmit) => {
+        console.log("SUBMIT SUGGESTION:", dataToSubmit);
+        const response = await fetch(`${BACKEND_URL}/api/suggestions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(dataToSubmit),
+        });
+        const responseText = await response.text(); // Ler como texto para depuração
+        console.log("Submit Suggestion Response (text):", responseText);
+        if (!response.ok) {
+            try { // Tenta parsear erro JSON do backend
+                const errorData = JSON.parse(responseText);
+                throw new Error(errorData?.message || errorData?.title || `Erro no servidor: ${response.status}`);
+            } catch { // Se não for JSON, usa o texto
+                throw new Error(responseText || `Erro no servidor: ${response.status}`);
+            }
+        }
+        return JSON.parse(responseText); // Sucesso, espera JSON
+    };
+    // --- Fim da Lógica Backend ---
+
+
+    // Manipulador de código escaneado
+    const handleBarcodeScanned = async ({ data }) => { // type não está sendo usado
+        if (isLoading) return; // Evita processamento múltiplo
 
         setCameraActive(false);
         setIsLoading(true);
-        resetState(true); // Mantém o scannedData atual (data)
+        resetUIState(true); // Mantém o 'data' escaneado para uso no formulário
         setScannedData(data);
 
-        console.log(`Código escaneado: ${data} (Tipo: ${type})`);
-        const requestUrl = `${BACKEND_URL}/api/productinfo?barcode=${data}`;
-        console.log(`Buscando informações: ${requestUrl}`);
-
         try {
-            const response = await fetch(requestUrl);
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`Erro na resposta do backend: ${response.status} - ${errorText}`);
-                throw new Error(`Erro do servidor: ${response.status} - ${errorText}`);
-            }
-            const ecoResponse = await response.json();
-            console.log('Resposta do backend:', JSON.stringify(ecoResponse, null, 2));
+            const ecoResponse = await fetchProductInformation(data);
+            console.log('Backend Response:', JSON.stringify(ecoResponse, null, 2));
 
             if (ecoResponse.suggestionNeeded) {
-                setProductInfo(null);
                 let initialProductName = '';
                 let initialMaterial = '';
-
-                // Só preenche nome e material se vier da API e não for um placeholder de "não encontrado"
-                if (ecoResponse.dataSource.startsWith("API_")) { // API_No_Guide ou API_No_Guide_For_Material
-                    if (ecoResponse.productName && ecoResponse.productName !== "Nome não fornecido pela API" && ecoResponse.productName !== "Produto não encontrado") {
+                if (ecoResponse.dataSource.startsWith("API_")) {
+                    if (ecoResponse.productName && !["Nome não fornecido pela API", "Produto não encontrado", "Produto não cadastrado no banco de dados"].includes(ecoResponse.productName)) {
                         initialProductName = ecoResponse.productName;
                     }
-                    if (ecoResponse.material && ecoResponse.material !== "Desconhecido (API)" && ecoResponse.material !== "Material não identificado") {
+                    if (ecoResponse.material && !["Desconhecido (API)", "Material não identificado", "Desconhecido (DB)"].includes(ecoResponse.material)) {
                         initialMaterial = ecoResponse.material;
                     }
                 }
-                // Se for "Not_Found_Everywhere", productName e material ficam vazios.
-
                 setSuggestionData({
-                    ...initialSuggestionData, // Começa com tudo vazio
-                    barcode: data,
-                    productName: initialProductName,
-                    material: initialMaterial
+                    ...initialSuggestionDataState, barcode: data,
+                    productName: initialProductName, material: initialMaterial
                 });
-
                 setShowSuggestionForm(true);
-                if (ecoResponse.dataSource === "Not_Found_Everywhere") {
-                    setUserMessage("Produto não encontrado em nossas bases. Por favor, ajude-nos cadastrando as informações abaixo!");
-                } else { // API_No_Guide ou API_No_Guide_For_Material
-                    setUserMessage("Algumas informações sobre este produto ou seu material não foram encontradas. Você pode nos ajudar sugerindo os detalhes.");
-                }
+                setUserMessage(ecoResponse.dataSource === "Not_Found_Everywhere"
+                    ? "Produto não encontrado. Ajude-nos cadastrando as informações!"
+                    : "Informações incompletas. Você pode nos ajudar sugerindo os detalhes.");
             } else {
                 setProductInfo(ecoResponse);
-                setShowSuggestionForm(false);
-                setUserMessage(null);
             }
-
         } catch (e) {
-            console.error("Erro ao buscar informações:", e);
             setError(`Falha ao buscar dados: ${e.message}.`);
-            setUserMessage(null); // Limpa mensagem se houver erro
-            // Fallback para formulário de sugestão em caso de erro de busca
-            setSuggestionData({ ...initialSuggestionData, barcode: data });
+            setSuggestionData({ ...initialSuggestionDataState, barcode: data }); // Prepara para sugestão mesmo em erro
             setShowSuggestionForm(true);
-            setUserMessage("Ocorreu um erro ao buscar as informações. Se desejar, você pode tentar cadastrar o produto.");
+            setUserMessage("Ocorreu um erro ao buscar as informações. Se desejar, pode tentar cadastrar o produto.");
         } finally {
             setIsLoading(false);
         }
     };
 
-    const handleSendSuggestion = async () => {
-        if (!suggestionData.barcode || !suggestionData.productName || !suggestionData.material) {
-            Alert.alert("Campos Obrigatórios", "Por favor, preencha Código de Barras, Nome do Produto e Material Principal.");
+    // Manipulador de envio de sugestão
+    const handleSuggestionSubmit = async () => {
+        if (!suggestionData.productName || !suggestionData.material) { // Barcode já vem do scan
+            Alert.alert("Campos Obrigatórios", "Nome do Produto e Material Principal são obrigatórios.");
             return;
         }
-        setIsLoading(true);
-        setError(null);
-        setUserMessage(null);
+        setIsLoading(true); setError(null); setUserMessage(null);
         try {
-            const response = await fetch(`${BACKEND_URL}/api/suggestions`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(suggestionData),
-            });
-
-            const responseText = await response.text();
-            console.log("Resposta do envio da sugestão (texto):", responseText);
-
-            if (!response.ok) {
-                 try {
-                    const errorData = JSON.parse(responseText);
-                    const errorMessage = errorData?.message || errorData?.title || `Erro do servidor: ${response.status}`;
-                    throw new Error(errorMessage);
-                } catch (parseError) {
-                    throw new Error(responseText || `Erro do servidor: ${response.status}`);
-                }
-            }
-            
-            const result = JSON.parse(responseText); 
+            const result = await submitProductSuggestion(suggestionData);
             Alert.alert("Sucesso!", result.message || "Obrigado pela sua colaboração!");
             setShowSuggestionForm(false);
-            resetState(); 
+            resetUIState();
         } catch (e) {
-            console.error("Erro ao enviar sugestão:", e);
             setError(`Falha ao enviar sugestão: ${e.message}`);
-            Alert.alert("Erro ao Enviar", `Não foi possível enviar sua sugestão. Detalhes: ${e.message}`);
+            Alert.alert("Erro ao Enviar", `Não foi possível enviar. Detalhes: ${e.message}`);
         } finally {
             setIsLoading(false);
         }
     };
 
-    const openCamera = () => {
-        if (hasPermission === null) {
-            Alert.alert("Aguarde", "Verificando permissões da câmera...");
-            return;
-        }
+    // Atualiza os dados do formulário de sugestão
+    const handleSuggestionDataChange = (field, value) => {
+        setSuggestionData(prev => ({ ...prev, [field]: value }));
+    };
+
+    // Abre a câmera
+    const openScanner = () => {
+        if (hasPermission === null) { Alert.alert("Aguarde", "Verificando permissões..."); return; }
         if (hasPermission === false) {
-            Alert.alert(
-                "Sem Permissão",
-                "A permissão da câmera foi negada. Por favor, habilite nas configurações do aplicativo.",
-                [{ text: "Abrir Configurações", onPress: () => Linking.openSettings() }, { text: "Cancelar" }]
-            );
-            return;
+            Alert.alert("Sem Permissão", "Habilite a câmera nas configurações do app.",
+                [{ text: "Configurações", onPress: () => Linking.openSettings() }, { text: "Cancelar" }]
+            ); return;
         }
-        resetState(); 
+        resetUIState();
         setCameraActive(true);
     };
 
-    const cancelSuggestion = () => {
+    // Cancela a ação atual (scan ou formulário) e reseta
+    const cancelCurrentAction = () => {
+        setCameraActive(false);
         setShowSuggestionForm(false);
-        resetState();
+        resetUIState();
     };
 
-    if (hasPermission === null && !cameraActive) {
+
+    // --- Renderização ---
+    if (hasPermission === null && !cameraActive) { // Tela de Carregamento de Permissão
         return (
-            <View style={styles.container}>
-                <ActivityIndicator size="large" color="#00ff00" />
-                <Text style={styles.messageText}>Solicitando permissão da câmera...</Text>
+            <View style={globalStyles.fullScreenContainer}>
+                <ActivityIndicator size="large" color={colors.loadingIndicator} />
+                <Text style={globalStyles.messageText}>Solicitando permissão da câmera...</Text>
             </View>
         );
     }
 
-    if (cameraActive && hasPermission) {
+    if (cameraActive && hasPermission) { // Tela da Câmera
         return (
-            <View style={styles.container}>
-                <Camera
-                    style={styles.camera}
-                    type={CameraType && CameraType.back ? CameraType.back : 'back'}
-                    onBarcodeScanned={scannedData && isLoading ? undefined : handleBarCodeScanned} // Evita scan múltiplo enquanto processa o anterior
+            <View style={globalStyles.fullScreenContainer}>
+                <ExpoCameraComponent
+                    style={cameraScreenStyles.camera}
+                    type={ExpoCameraType?.back} // Usar o ExpoCameraType.back diretamente
+                    onBarcodeScanned={isLoading ? undefined : handleBarcodeScanned} // Evita scan se já estiver carregando
                     barcodeScannerSettings={{
                         barcodeTypes: ["ean13", "ean8", "qr", "upc_a", "upc_e", "code128", "code39", "code93", "codabar", "itf", "pdf417", "aztec", "datamatrix"],
                     }}
                 />
-                <View style={styles.cameraOverlay}>
-                    <Text style={styles.overlayText}>Aponte para o código de barras</Text>
+                <View style={cameraScreenStyles.overlay}>
+                    <Text style={cameraScreenStyles.overlayText}>Aponte para o código de barras</Text>
                 </View>
-                <View style={styles.buttonContainerFixedBottom}>
-                    <Button title="Cancelar Scan" onPress={() => { setCameraActive(false); resetState(); }} color="#ff4757" />
+                <View style={cameraScreenStyles.fixedBottomButtonContainer}>
+                    <Button title="Cancelar Scan" onPress={cancelCurrentAction} color={colors.cancel} />
                 </View>
             </View>
         );
     }
 
+    // Tela Principal: Resultados, Formulário ou Inicial
     return (
-        <ScrollView contentContainerStyle={styles.scrollContainer}>
-            <View style={styles.content}>
-                <Text style={styles.title}>EcoScan</Text>
+        <ScrollView contentContainerStyle={globalStyles.scrollContainer}>
+            <View style={globalStyles.contentContainer}>
+                <Text style={globalStyles.appTitle}>EcoScan</Text>
 
                 {isLoading && (
                     <>
-                        <ActivityIndicator size="large" color="#00ff00" style={{ marginVertical: 20 }} />
-                        <Text style={styles.messageText}>Buscando informações...</Text>
+                        <ActivityIndicator size="large" color={colors.loadingIndicator} style={globalStyles.loadingIndicator} />
+                        <Text style={globalStyles.messageText}>Buscando informações...</Text>
                     </>
                 )}
 
-                {userMessage && !isLoading && ( // Exibe a mensagem do usuário (ex: Produto não encontrado)
-                    <Text style={[styles.messageText, styles.userMessageEmphasis]}>{userMessage}</Text>
+                {userMessage && !isLoading && (
+                    <Text style={[globalStyles.messageText, globalStyles.userMessageEmphasis]}>{userMessage}</Text>
                 )}
 
                 {error && !isLoading && (
-                    <View style={styles.errorBox}>
-                        <Text style={styles.errorText}>Erro:</Text>
-                        <Text style={styles.errorTextDetails}>{error}</Text>
+                    <View style={globalStyles.errorBox}>
+                        <Text style={globalStyles.errorText}>Erro:</Text>
+                        <Text style={globalStyles.errorTextDetails}>{error}</Text>
                     </View>
                 )}
 
                 {showSuggestionForm && !isLoading && (
-                    <View style={styles.suggestionFormContainer}>
-                        <Text style={styles.suggestionTitle}>Sugerir Informações do Produto</Text>
-                        <Text style={styles.infoLabel}>Código de Barras: {suggestionData.barcode}</Text>
-
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Nome do Produto*"
-                            value={suggestionData.productName}
-                            onChangeText={text => setSuggestionData(prev => ({ ...prev, productName: text }))}
-                            placeholderTextColor="#bdc3c7"
-                        />
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Material Principal*"
-                            value={suggestionData.material}
-                            onChangeText={text => setSuggestionData(prev => ({ ...prev, material: text }))}
-                            placeholderTextColor="#bdc3c7"
-                        />
-                        <TextInput
-                            style={[styles.input, styles.multilineInput]}
-                            placeholder="Dicas de Descarte (Opcional)"
-                            value={suggestionData.disposalTips}
-                            onChangeText={text => setSuggestionData(prev => ({ ...prev, disposalTips: text }))}
-                            multiline
-                            numberOfLines={3}
-                            placeholderTextColor="#bdc3c7"
-                        />
-                        <TextInput
-                            style={[styles.input, styles.multilineInput]}
-                            placeholder="Informações de Reciclagem (Opcional)"
-                            value={suggestionData.recyclingInfo}
-                            onChangeText={text => setSuggestionData(prev => ({ ...prev, recyclingInfo: text }))}
-                            multiline
-                            numberOfLines={3}
-                            placeholderTextColor="#bdc3c7"
-                        />
-                        <TextInput
-                            style={[styles.input, styles.multilineInput]}
-                            placeholder="Impacto/Sustentabilidade (Opcional)"
-                            value={suggestionData.sustainabilityImpact}
-                            onChangeText={text => setSuggestionData(prev => ({ ...prev, sustainabilityImpact: text }))}
-                            multiline
-                            numberOfLines={3}
-                            placeholderTextColor="#bdc3c7"
-                        />
-                        <View style={styles.formButtonContainer}>
-                            <Button title="Enviar Sugestão" onPress={handleSendSuggestion} color="#1abc9c" />
-                        </View>
-                        <View style={styles.formButtonContainer}>
-                            <Button title="Cancelar" onPress={cancelSuggestion} color="#e74c3c" />
-                        </View>
-                    </View>
+                    <SuggestionForm
+                        suggestionData={suggestionData}
+                        onSuggestionDataChange={handleSuggestionDataChange}
+                        onSubmit={handleSuggestionSubmit}
+                        onCancel={cancelCurrentAction}
+                    />
                 )}
 
                 {productInfo && !isLoading && !showSuggestionForm && (
-                    <View style={styles.productInfoContainer}>
-                        <Text style={styles.productTitle}>{productInfo.productName}</Text>
-                        <InfoRow label="Código:" value={productInfo.barcode} />
-                        <InfoRow label="Material Principal:" value={productInfo.material} />
-                        <InfoRow label="Dicas de Descarte:" value={productInfo.disposalTips || "Não informado"} />
-                        <InfoRow label="Reciclagem:" value={productInfo.recyclingInfo || "Não informado"} />
-                        <InfoRow label="Impacto/Sustentabilidade:" value={productInfo.sustainabilityImpact || "Não informado"} />
-                        <InfoRow label="Fonte:" value={productInfo.dataSource} />
-                    </View>
+                    <ProductDisplay productInfo={productInfo} />
                 )}
 
                 {!isLoading && !productInfo && !showSuggestionForm && hasPermission === false && (
-                    <View style={styles.centeredContent}>
-                        <Text style={styles.messageText}>Permissão para usar a câmera foi negada.</Text>
-                        <Button title="Abrir Configurações" onPress={() => Linking.openSettings().catch(err => console.warn("Não foi possível abrir configurações: ", err))} />
+                    <View style={globalStyles.centeredMessageContainer}>
+                        <Text style={globalStyles.messageText}>Permissão para usar a câmera foi negada.</Text>
+                        <Button title="Abrir Configurações" onPress={() => Linking.openSettings().catch(err => console.warn("Não foi possível abrir config:", err))} />
                     </View>
                 )}
 
+                {/* Botões de Ação Principais */}
                 {!cameraActive && !isLoading && !showSuggestionForm && (
-                    <View style={styles.actionButtons}>
-                        {(!productInfo && !error && !userMessage) && ( // Só mostra se não tiver info, erro ou msg de usuário
-                            <Button title="Escanear Código de Barras" onPress={openCamera} disabled={hasPermission === false} color="#2ed573" />
-                        )}
-                        {(productInfo || error || userMessage) && ( // Se tiver info, erro ou msg de usuário, mostra "escanear outro"
-                            <View style={{ marginTop: 20 }}>
-                                <Button title="Escanear Outro Produto" onPress={openCamera} color="#1e90ff" />
-                            </View>
-                        )}
+                    <View style={globalStyles.actionButtonContainer}>
+                        <Button
+                            title={(productInfo || error || userMessage) ? "Escanear Outro Produto" : "Escanear Código de Barras"}
+                            onPress={openScanner}
+                            disabled={hasPermission === false}
+                            color={(productInfo || error || userMessage) ? colors.secondary : colors.accent}
+                        />
                     </View>
                 )}
             </View>
         </ScrollView>
     );
 }
-
-const InfoRow = ({ label, value }) => (
-    <View style={styles.infoRow}>
-        <Text style={styles.infoLabel}>{label}</Text>
-        <Text style={styles.infoValue}>{value || "N/A"}</Text> 
-    </View>
-);
-
-const styles = StyleSheet.create({
-    scrollContainer: {
-        flexGrow: 1,
-        backgroundColor: '#2c3e50',
-    },
-    container: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        backgroundColor: '#000',
-    },
-    content: {
-        flex: 1,
-        padding: 20,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    centeredContent: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 20,
-    },
-    title: {
-        fontSize: 32,
-        fontWeight: 'bold',
-        color: '#ecf0f1',
-        marginBottom: 20, // Reduzido um pouco
-        textAlign: 'center',
-    },
-    camera: {
-        ...StyleSheet.absoluteFillObject,
-    },
-    cameraOverlay: {
-        position: 'absolute',
-        top: '20%',
-        left: '10%',
-        right: '10%',
-        padding: 15,
-        backgroundColor: 'rgba(0,0,0,0.6)',
-        borderRadius: 10,
-        alignItems: 'center',
-    },
-    overlayText: {
-        color: 'white',
-        fontSize: 18,
-        textAlign: 'center',
-    },
-    buttonContainerFixedBottom: {
-        position: 'absolute',
-        bottom: 30,
-        left: 20,
-        right: 20,
-    },
-    messageText: {
-        fontSize: 16,
-        color: '#bdc3c7',
-        textAlign: 'center',
-        paddingHorizontal: 10, // Adicionado padding horizontal
-        marginVertical: 10, // Adicionado margin vertical
-    },
-    userMessageEmphasis: { // Estilo para a mensagem do usuário
-        color: '#f1c40f', // Um amarelo para destaque
-        fontWeight: 'bold',
-        marginBottom: 15,
-    },
-    productInfoContainer: {
-        marginTop: 15, // Reduzido
-        padding: 15,
-        backgroundColor: '#34495e',
-        borderRadius: 8,
-        width: '100%',
-    },
-    productTitle: {
-        fontSize: 22,
-        fontWeight: 'bold',
-        color: '#1abc9c',
-        marginBottom: 15,
-        textAlign: 'center',
-    },
-    infoRow: {
-        marginBottom: 12,
-    },
-    infoLabel: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#ecf0f1',
-        marginBottom: 4,
-    },
-    infoValue: {
-        fontSize: 15,
-        color: '#bdc3c7',
-    },
-    errorBox: {
-        marginTop: 15, // Reduzido
-        padding: 15,
-        backgroundColor: '#e74c3c',
-        borderRadius: 8,
-        width: '100%',
-    },
-    errorText: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: 'white',
-        textAlign: 'center',
-    },
-    errorTextDetails: {
-        fontSize: 14,
-        color: 'white',
-        textAlign: 'center',
-        marginTop: 5,
-    },
-    actionButtons: {
-        marginTop: 20, // Reduzido
-        width: '80%',
-    },
-    suggestionFormContainer: {
-        width: '100%',
-        padding: 15,
-        backgroundColor: '#3e5770', // Um pouco mais claro para diferenciar
-        borderRadius: 8,
-        marginTop: 10, // Reduzido
-        marginBottom: 20,
-    },
-    suggestionTitle: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#1abc9c',
-        marginBottom: 15,
-        textAlign: 'center',
-    },
-    input: {
-        backgroundColor: '#2c3e50',
-        color: '#ecf0f1',
-        paddingHorizontal: 15,
-        paddingVertical: 10,
-        borderRadius: 5,
-        marginBottom: 12, // Aumentado um pouco
-        borderWidth: 1,
-        borderColor: '#1abc9c',
-        fontSize: 15,
-    },
-    multilineInput: {
-        minHeight: 70, // Reduzido um pouco
-        textAlignVertical: 'top',
-    },
-    formButtonContainer: {
-        marginTop: 12, // Aumentado um pouco
-    }
-});
