@@ -12,7 +12,7 @@ const ExpoCameraComponent = CameraView;
 const requestCameraPermissions = CameraUtils.requestCameraPermissionsAsync;
 const ExpoCameraType = ActualCameraType;
 
-const BACKEND_URL = 'http://192.168.0.4:5291'; // CONFIRME SEU IP E PORTA
+const BACKEND_URL = 'http://IP_DA_MAQUINA:5291'; // CONFIRME SEU IP E PORTA
 
 const initialNewProductSuggestionDataState = {
     barcode: '', productName: '', material: '',
