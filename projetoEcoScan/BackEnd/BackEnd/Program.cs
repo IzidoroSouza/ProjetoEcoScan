@@ -86,6 +86,6 @@ app.MapControllers();
 
 app.Urls.Clear();
 app.Urls.Add("http://localhost:5291");
-app.Urls.Add("http://INSERIR_IP_DA_MAQUINA:5291"); // Substitua pelo seu IP de desenvolvimento na rede local
+app.Urls.Add("http://192.168.0.4:5291"); // Substitua pelo seu IP de desenvolvimento na rede local
 
 app.Run();

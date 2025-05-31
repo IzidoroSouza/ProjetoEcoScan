@@ -1,394 +1,268 @@
 // FrontEnd/App.js
-import React, { useState, useEffect } from 'react';
-import { View, Text, Alert, Linking, Button, ActivityIndicator, ScrollView, Platform } from 'react-native';
-import { Camera as CameraUtils, CameraView, CameraType as ActualCameraType } from 'expo-camera';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, Button, TextInput, StyleSheet, Alert, ActivityIndicator, Platform, Animated } from 'react-native';
+import MainAppContent from './MainAppContent';
+import { globalStyles, colors, spacing, typography } from './src/styles/AppStyles'; // Certifique-se que 'colors.background' está definido aqui
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Importações de Componentes e Estilos
-import ProductDisplay from './src/componentes/ProductDisplay';
-import SuggestionForm from './src/componentes/SuggestionForm';
-import SuggestionReviewCard from './src/componentes/SuggestionReviewCard';
-import { globalStyles, cameraScreenStyles, colors, spacing, typography } from './src/styles/AppStyles';
+const ADMIN_PASSWORD = "Admin"; // Corrigido para "Admin" (case sensitive) se essa for a senha
+const USER_ROLE_KEY = '@userRole';
 
-// Expo Camera specific imports
-const ExpoCameraComponent = CameraView;
-const requestCameraPermissions = CameraUtils.requestCameraPermissionsAsync;
-const ExpoCameraType = ActualCameraType;
+const TEXT_FADE_IN_DURATION = 800;
+const SPLASH_HOLD_DURATION = 1500;
+const SCREEN_FADE_OUT_DURATION = 700;
 
-// --- Configurações ---
-const BACKEND_URL = 'http://INSERIR_IP_DA_MAQUINA:5291'; // CONFIRME SEU IP E PORTA
-
-const initialNewProductSuggestionDataState = {
-    barcode: '', productName: '', material: '',
-    // Dicas não são mais parte da sugestão inicial do usuário
-};
-
-const initialReviewFormDataState = { // Para o formulário de revisão/aprovação
-    barcode: '',
-    productName: '',
-    material: '',
-    // Dicas não são editadas aqui, virão do backend com base no material
-};
-
-// --- Componente Principal ---
 export default function App() {
-    // Estados da Aplicação
-    const [showReviewSection, setShowReviewSection] = useState(false);
-    const [pendingSuggestions, setPendingSuggestions] = useState([]);
-    const [selectedSuggestionForReview, setSelectedSuggestionForReview] = useState(null);
-    const [reviewFormData, setReviewFormData] = useState(initialReviewFormDataState);
-    const [hasPermission, setHasPermission] = useState(null);
-    const [cameraActive, setCameraActive] = useState(false);
-    const [scannedData, setScannedData] = useState(null);
-    const [productInfo, setProductInfo] = useState(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState(null);
-    const [userMessage, setUserMessage] = useState(null);
-    const [showSuggestionForm, setShowSuggestionForm] = useState(false);
-    const [newProductSuggestionData, setNewProductSuggestionData] = useState(initialNewProductSuggestionDataState);
+    const [showSplash, setShowSplash] = useState(true);
+    const [currentView, setCurrentView] = useState('loading'); // Mantém 'loading' como estado inicial
+    const [userRole, setUserRole] = useState(null);
+    const [adminPassword, setAdminPassword] = useState('');
+    const [loginError, setLoginError] = useState('');
+
+    const screenOpacity = useRef(new Animated.Value(1)).current;
+    const textOpacity = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
-        const getCameraPermissions = async () => {
-            try {
-                if (typeof requestCameraPermissions !== 'function') {
-                    Alert.alert("Erro Config.", "Permissão câmera não encontrada.");
-                    setHasPermission(false); return;
-                }
-                const { status } = await requestCameraPermissions();
-                setHasPermission(status === 'granted');
-                if (status !== 'granted') Alert.alert("Permissão Necessária", "Câmera é necessária para escanear.");
-            } catch (err) {
-                Alert.alert("Erro Permissão", "Erro ao solicitar permissão da câmera.");
-                setHasPermission(false);
-            }
+        Animated.timing(textOpacity, {
+            toValue: 1,
+            duration: TEXT_FADE_IN_DURATION,
+            useNativeDriver: true,
+        }).start(() => {
+            setTimeout(() => {
+                Animated.timing(screenOpacity, {
+                    toValue: 0,
+                    duration: SCREEN_FADE_OUT_DURATION,
+                    useNativeDriver: true,
+                }).start(() => {
+                    setShowSplash(false);
+                });
+            }, SPLASH_HOLD_DURATION);
+        });
+
+        return () => {
+            textOpacity.stopAnimation();
+            screenOpacity.stopAnimation();
         };
-        getCameraPermissions();
     }, []);
 
-    const resetUIState = (keepLastScan = false) => {
-        setProductInfo(null);
-        if (!keepLastScan) setScannedData(null);
-        setError(null);
-        setUserMessage(null);
-        setShowSuggestionForm(false);
-        setNewProductSuggestionData(initialNewProductSuggestionDataState);
-        // Não resetar showReviewSection aqui diretamente, mas sim seus dados internos
-        setSelectedSuggestionForReview(null);
-        setReviewFormData(initialReviewFormDataState);
-    };
+    useEffect(() => {
+        if (showSplash) return; // Só carrega o role se o splash não estiver mais visível
 
-    // --- Lógica de Interação com Backend ---
-    const fetchProductInformation = async (barcode) => {
-        const requestUrl = `${BACKEND_URL}/api/productinfo?barcode=${barcode}`;
-        console.log(`FETCH: ${requestUrl}`);
-        const response = await fetch(requestUrl);
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`Backend Error: ${response.status} - ${errorText}`);
-            throw new Error(`Erro do servidor: ${response.status}`);
-        }
-        return await response.json();
-    };
-
-    const submitNewProductSuggestion = async (dataToSubmit) => {
-        console.log("SUBMIT NEW PRODUCT SUGGESTION:", dataToSubmit);
-        const payload = {
-            barcode: dataToSubmit.barcode,
-            productName: dataToSubmit.productName,
-            material: dataToSubmit.material,
-        };
-        const response = await fetch(`${BACKEND_URL}/api/suggestions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
-        const responseText = await response.text();
-        console.log("Submit New Product Suggestion Response (text):", responseText);
-        if (!response.ok) {
+        const loadStoredRole = async () => {
             try {
-                const errorData = JSON.parse(responseText);
-                throw new Error(errorData?.message || errorData?.title || `Erro no servidor: ${response.status}`);
-            } catch {
-                throw new Error(responseText || `Erro no servidor: ${response.status}`);
-            }
-        }
-        return JSON.parse(responseText);
-    };
-
-    const fetchPendingSuggestions = async () => {
-        console.log("FETCHING PENDING SUGGESTIONS");
-        setIsLoading(true);
-        try {
-            const response = await fetch(`${BACKEND_URL}/api/suggestions`);
-            if (!response.ok) {
-                throw new Error(`Erro ao buscar sugestões: ${response.status}`);
-            }
-            const data = await response.json();
-            setPendingSuggestions(data);
-            setError(null);
-        } catch (e) {
-            setError(`Falha ao buscar sugestões: ${e.message}`);
-            setPendingSuggestions([]);
-            Alert.alert("Erro", `Não foi possível carregar as sugestões pendentes.`);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const approveSuggestionOnBackend = async (suggestionId, approvalData) => {
-        console.log("APPROVING SUGGESTION:", suggestionId, approvalData);
-        const payloadForApproval = {
-            barcode: approvalData.barcode,
-            productName: approvalData.productName,
-            material: approvalData.material,
-        };
-        const response = await fetch(`${BACKEND_URL}/api/suggestions/${suggestionId}/approve`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payloadForApproval),
-        });
-        const responseText = await response.text();
-        console.log("Approve Suggestion Response (text):", responseText);
-        if (!response.ok) {
-            try {
-                const errorData = JSON.parse(responseText);
-                throw new Error(errorData?.message || errorData?.title || `Erro: ${response.status}`);
-            } catch {
-                throw new Error(responseText || `Erro: ${response.status}`);
-            }
-        }
-        return JSON.parse(responseText);
-    };
-    // --- Fim da Lógica Backend ---
-
-    const handleBarcodeScanned = async ({ data }) => {
-        if (isLoading) return;
-        setCameraActive(false); setIsLoading(true); resetUIState(true); setScannedData(data);
-        try {
-            const ecoResponse = await fetchProductInformation(data);
-            console.log('Backend Response:', JSON.stringify(ecoResponse, null, 2));
-            if (ecoResponse.suggestionNeeded) {
-                let initialProductName = '';
-                if (ecoResponse.dataSource.startsWith("API_") && ecoResponse.productName && !["Nome não fornecido pela API", "Produto não encontrado", "Produto não cadastrado no banco de dados"].includes(ecoResponse.productName)) {
-                    initialProductName = ecoResponse.productName;
+                const storedRole = await AsyncStorage.getItem(USER_ROLE_KEY);
+                if (storedRole) {
+                    setUserRole(storedRole);
+                    setCurrentView('appContent');
+                } else {
+                    setCurrentView('roleSelection');
                 }
-                setNewProductSuggestionData({ ...initialNewProductSuggestionDataState, barcode: data, productName: initialProductName });
-                setShowSuggestionForm(true);
-                setUserMessage(ecoResponse.dataSource === "Not_Found_Everywhere" ? "Produto não encontrado. Ajude-nos cadastrando!" : "Informações incompletas. Sugira os detalhes.");
-            } else {
-                setProductInfo(ecoResponse);
+            } catch (e) {
+                console.error("Failed to load user role from storage", e);
+                setCurrentView('roleSelection'); // Fallback
             }
-        } catch (e) {
-            setError(`Falha ao buscar dados: ${e.message}.`);
-            setNewProductSuggestionData({ ...initialNewProductSuggestionDataState, barcode: data });
-            setShowSuggestionForm(true);
-            setUserMessage("Erro ao buscar. Tente cadastrar o produto.");
-        } finally { setIsLoading(false); }
-    };
+        };
+        loadStoredRole();
+    }, [showSplash]);
 
-    const handleNewProductSuggestionSubmit = async () => {
-        if (!newProductSuggestionData.productName || !newProductSuggestionData.material) {
-            Alert.alert("Campos Obrigatórios", "Nome do Produto e Material são obrigatórios."); return;
-        }
-        setIsLoading(true); setError(null); setUserMessage(null);
+    const saveAndSetRole = async (role) => {
         try {
-            const result = await submitNewProductSuggestion(newProductSuggestionData);
-            Alert.alert("Sucesso!", result.message || "Obrigado pela colaboração!");
-            setShowSuggestionForm(false); resetUIState();
+            await AsyncStorage.setItem(USER_ROLE_KEY, role);
+            setUserRole(role);
+            setCurrentView('appContent');
         } catch (e) {
-            setError(`Falha ao enviar: ${e.message}`); Alert.alert("Erro ao Enviar", `Detalhes: ${e.message}`);
-        } finally { setIsLoading(false); }
-    };
-
-    const handleNewProductSuggestionDataChange = (field, value) => {
-        setNewProductSuggestionData(prev => ({ ...prev, [field]: value }));
-    };
-
-    const handleToggleReviewSection = () => {
-        const openingReview = !showReviewSection;
-        setShowReviewSection(openingReview);
-        if (openingReview) {
-            resetUIState(); // Limpa UI principal de scan
-            fetchPendingSuggestions();
-        } else { // Fechando a seção de review
-            setPendingSuggestions([]);
-            setSelectedSuggestionForReview(null);
-            setReviewFormData(initialReviewFormDataState);
+            console.error("Failed to save user role", e);
+            Alert.alert("Erro", "Não foi possível salvar a preferência de perfil.");
+            setUserRole(role); // Tenta prosseguir mesmo sem salvar
+            setCurrentView('appContent');
         }
     };
 
-    const handleSelectSuggestionForReview = (suggestion) => {
-        setSelectedSuggestionForReview(suggestion);
-        setReviewFormData({
-            barcode: suggestion.barcode,
-            productName: suggestion.productName,
-            material: suggestion.material,
-        });
-    };
-
-    const handleReviewFormChange = (field, value) => {
-        setReviewFormData(prev => ({ ...prev, [field]: value }));
-    };
-
-    const handleApproveSuggestion = async () => {
-        if (!selectedSuggestionForReview || !reviewFormData) return;
-        if (!reviewFormData.productName || !reviewFormData.material) {
-            Alert.alert("Campos Obrigatórios", "Nome e Material são obrigatórios para aprovar."); return;
+    const handleRoleSelection = (role) => {
+        if (role === 'ADMIN') {
+            setCurrentView('adminLogin');
+            setLoginError('');
+            setAdminPassword('');
+        } else if (role === 'USER') {
+            saveAndSetRole('USER');
         }
-        setIsLoading(true);
+    };
+
+    const handleAdminLogin = () => {
+        if (adminPassword === ADMIN_PASSWORD) {
+            saveAndSetRole('ADMIN');
+            setLoginError('');
+        } else {
+            setLoginError('Senha incorreta!');
+            Alert.alert("Erro de Login", "Senha incorreta!");
+        }
+        setAdminPassword('');
+    };
+
+    const handleLogout = async () => {
         try {
-            await approveSuggestionOnBackend(selectedSuggestionForReview.id, reviewFormData);
-            Alert.alert("Sucesso", "Sugestão aprovada e produto processado!");
-            setSelectedSuggestionForReview(null); setReviewFormData(initialReviewFormDataState);
-            fetchPendingSuggestions();
+            await AsyncStorage.removeItem(USER_ROLE_KEY);
+            setUserRole(null);
+            setCurrentView('roleSelection');
+            setAdminPassword('');
+            setLoginError('');
         } catch (e) {
-            Alert.alert("Erro ao Aprovar", `Detalhes: ${e.message}`);
-        } finally { setIsLoading(false); }
-    };
-
-    const cancelReview = () => {
-        setSelectedSuggestionForReview(null); setReviewFormData(initialReviewFormDataState);
-    };
-
-    const openScanner = () => {
-        if (hasPermission === null) { Alert.alert("Aguarde", "Verificando permissões..."); return; }
-        if (hasPermission === false) {
-            Alert.alert("Sem Permissão", "Habilite a câmera nas configurações.",
-                [{ text: "Configurações", onPress: () => Linking.openSettings() }, { text: "Cancelar" }]
-            ); return;
+            console.error("Failed to clear user role", e);
+            Alert.alert("Erro", "Não foi possível limpar as preferências de perfil.");
+            setUserRole(null); // Força visualmente
+            setCurrentView('roleSelection');
         }
-        resetUIState(); setCameraActive(true);
     };
 
-    const cancelCurrentAction = () => { // Usado para cancelar scan ou formulário de nova sugestão
-        setCameraActive(false); setShowSuggestionForm(false); resetUIState();
+    const goBackToRoleSelectionFromLogin = () => {
+        setCurrentView('roleSelection');
+        setAdminPassword('');
+        setLoginError('');
     };
 
-    // --- Renderização ---
-    if (hasPermission === null && !cameraActive) {
-        return (
-            <View style={globalStyles.fullScreenContainer}>
-                <ActivityIndicator size="large" color={colors.loadingIndicator} />
-                <Text style={globalStyles.messageText}>Solicitando permissão da câmera...</Text>
+    // Função para renderizar o conteúdo principal baseado na view atual
+    const renderMainContent = () => {
+        if (currentView === 'loading') {
+            return (
+                <View style={styles.container}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={{ marginTop: spacing.medium, color: colors.textPrimary }}>Carregando...</Text>
+                </View>
+            );
+        }
+
+        if (currentView === 'roleSelection') {
+            return (
+                <View style={styles.container}>
+                    <Text style={styles.title}>Bem-vindo ao EcoScan!</Text>
+                    <Text style={styles.question}>Você é ADMIN ou USUÁRIO?</Text>
+                    <View style={styles.buttonContainer}>
+                        <Button title="ADMIN" onPress={() => handleRoleSelection('ADMIN')} color={colors.primary} />
+                    </View>
+                    <View style={styles.buttonContainer}>
+                        <Button title="USUÁRIO" onPress={() => handleRoleSelection('USER')} color={colors.secondary} />
+                    </View>
+                </View>
+            );
+        }
+
+        if (currentView === 'adminLogin') {
+            return (
+                <View style={styles.container}>
+                    <Text style={styles.title}>Login de Administrador</Text>
+                    <Text style={styles.label}>Digite a senha para entrar como ADMIN:</Text>
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Senha"
+                        secureTextEntry
+                        value={adminPassword}
+                        onChangeText={setAdminPassword}
+                        placeholderTextColor={colors.textSecondary}
+                    />
+                    {loginError ? <Text style={styles.errorText}>{loginError}</Text> : null}
+                    <View style={styles.buttonContainer}>
+                        <Button title="Entrar" onPress={handleAdminLogin} color={colors.primary} />
+                    </View>
+                    <View style={styles.buttonContainer}>
+                        <Button title="Voltar" onPress={goBackToRoleSelectionFromLogin} color={colors.textSecondary} />
+                    </View>
+                </View>
+            );
+        }
+
+        if (currentView === 'appContent' && userRole) {
+            return <MainAppContent userRole={userRole} onLogoutRequest={handleLogout} />;
+        }
+
+        return ( // Fallback
+            <View style={styles.container}>
+                <Text>Erro inesperado. Por favor, reinicie o aplicativo.</Text>
             </View>
         );
-    }
-
-    if (cameraActive && hasPermission) {
-        return (
-            <View style={globalStyles.fullScreenContainer}>
-                <ExpoCameraComponent
-                    style={cameraScreenStyles.camera}
-                    type={ExpoCameraType?.back}
-                    onBarcodeScanned={isLoading ? undefined : handleBarcodeScanned}
-                    barcodeScannerSettings={{
-                        barcodeTypes: ["ean13", "ean8", "qr", "upc_a", "upc_e", "code128", "code39", "code93", "codabar", "itf", "pdf417", "aztec", "datamatrix"],
-                    }}
-                />
-                <View style={cameraScreenStyles.overlay}>
-                    <Text style={cameraScreenStyles.overlayText}>Aponte para o código de barras</Text>
-                </View>
-                <View style={cameraScreenStyles.fixedBottomButtonContainer}>
-                    <Button title="Cancelar Scan" onPress={cancelCurrentAction} color={colors.cancel} />
-                </View>
-            </View>
-        );
-    }
+    };
 
     return (
-        <ScrollView contentContainerStyle={globalStyles.scrollContainer}>
-            <View style={globalStyles.contentContainer}>
-                <Text style={globalStyles.appTitle}>EcoScan</Text>
-
-                <View style={{ marginBottom: spacing.medium, width: '80%' }}>
-                    <Button
-                        title={showReviewSection ? "Voltar ao Scan de Produtos" : "Revisar Sugestões Pendentes"}
-                        onPress={handleToggleReviewSection}
-                        color={colors.warning}
-                    />
-                </View>
-
-                {showReviewSection && (
-                    <View style={globalStyles.adminSectionContainer}>
-                        <Text style={globalStyles.adminSectionTitle}>Sugestões Pendentes para Revisão</Text>
-                        {isLoading && pendingSuggestions.length === 0 && !selectedSuggestionForReview && <ActivityIndicator size="small" color={colors.loadingIndicator} />}
-                        {selectedSuggestionForReview && reviewFormData ? (
-                            <SuggestionReviewCard
-                                suggestion={selectedSuggestionForReview}
-                                reviewData={reviewFormData}
-                                onReviewDataChange={handleReviewFormChange}
-                                onApprove={handleApproveSuggestion}
-                                onCancelReview={cancelReview}
-                            />
-                        ) : (
-                            !isLoading && pendingSuggestions.length > 0 ? (
-                                pendingSuggestions.map(sugg => (
-                                    <View key={sugg.id} style={globalStyles.suggestionListItem}>
-                                        <Text style={globalStyles.suggestionText}>ID: {sugg.id} - {sugg.productName}</Text>
-                                        <Text style={globalStyles.suggestionTextSmall}>Barcode: {sugg.barcode}</Text>
-                                        <Text style={globalStyles.suggestionTextSmall}>Material Sugerido: {sugg.material}</Text>
-                                        <Button title="Analisar/Aprovar" onPress={() => handleSelectSuggestionForReview(sugg)} color={colors.secondary}/>
-                                    </View>
-                                ))
-                            ) : (
-                                !isLoading && <Text style={globalStyles.messageText}>Nenhuma sugestão pendente para revisão.</Text>
-                            )
-                        )}
-                        {error && <Text style={{color: colors.error, textAlign: 'center', marginTop: 10, width: '100%'}}>{error}</Text>}
-                    </View>
-                )}
-
-                {/* Bloco da UI de Scan Normal - SÓ MOSTRA SE NÃO ESTIVER NA SEÇÃO DE REVISÃO */}
-                {!showReviewSection && (
-                    <>
-                        {isLoading && (
-                            <>
-                                <ActivityIndicator size="large" color={colors.loadingIndicator} style={globalStyles.loadingIndicator} />
-                                <Text style={globalStyles.messageText}>Buscando informações...</Text>
-                            </>
-                        )}
-                        {userMessage && !isLoading && (
-                            <Text style={[globalStyles.messageText, globalStyles.userMessageEmphasis]}>{userMessage}</Text>
-                        )}
-                        {error && !isLoading && (
-                            <View style={globalStyles.errorBox}>
-                                <Text style={globalStyles.errorText}>Erro:</Text>
-                                <Text style={globalStyles.errorTextDetails}>{error}</Text>
-                            </View>
-                        )}
-                        {showSuggestionForm && !isLoading && (
-                            <SuggestionForm
-                                suggestionData={newProductSuggestionData}
-                                onSuggestionDataChange={handleNewProductSuggestionDataChange}
-                                onSubmit={handleNewProductSuggestionSubmit}
-                                onCancel={cancelCurrentAction}
-                            />
-                        )}
-                        {productInfo && !isLoading && !showSuggestionForm && (
-                            <ProductDisplay productInfo={productInfo} />
-                        )}
-                        {!isLoading && !productInfo && !showSuggestionForm && hasPermission === false && (
-                            <View style={globalStyles.centeredMessageContainer}>
-                                <Text style={globalStyles.messageText}>Permissão para usar a câmera foi negada.</Text>
-                                <Button title="Abrir Configurações" onPress={() => Linking.openSettings().catch(err => console.warn("Não foi possível abrir config:", err))} />
-                            </View>
-                        )}
-                        
-                        {/* Botão de Scan Principal - Condição corrigida para só aparecer se não estiver na câmera,
-                            não estiver carregando, não estiver mostrando o formulário de sugestão de NOVO produto,
-                            E NÃO ESTIVER NA SEÇÃO DE REVISÃO */}
-                        {!cameraActive && !isLoading && !showSuggestionForm && !showReviewSection && (
-                             <View style={globalStyles.actionButtonContainer}>
-                                <Button
-                                    title={(productInfo || error || userMessage) ? "Escanear Outro Produto" : "Escanear Código de Barras"}
-                                    onPress={openScanner}
-                                    disabled={hasPermission === false}
-                                    color={(productInfo || error || userMessage) ? colors.secondary : colors.accent}
-                                />
-                            </View>
-                        )}
-                    </>
-                )}
-            </View>
-        </ScrollView>
+        // View externa que define a cor de fundo para todo o app
+        <View style={{ flex: 1, backgroundColor: colors.background }}>
+            {showSplash ? (
+                <Animated.View style={[styles.splashContainer, { opacity: screenOpacity }]}>
+                    <Animated.Text style={[styles.splashText, { opacity: textOpacity }]}>
+                        EcoScan
+                    </Animated.Text>
+                </Animated.View>
+            ) : (
+                renderMainContent()
+            )}
+        </View>
     );
 }
+
+const styles = StyleSheet.create({
+    splashContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#4CAF50', // Cor verde do splash
+        // Adicionar position: 'absolute' e zIndex pode ser necessário se o conteúdo por baixo "piscar"
+        // position: 'absolute',
+        // top: 0,
+        // left: 0,
+        // right: 0,
+        // bottom: 0,
+        // zIndex: 999, // Para garantir que o splash fique por cima
+    },
+    splashText: {
+        fontSize: 48,
+        fontWeight: 'bold',
+        color: '#FFFFFF',
+    },
+    container: { // Este container é para as telas internas (roleSelection, adminLogin, loading)
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: spacing.large,
+        // backgroundColor: colors.background, // A cor de fundo principal agora está na View externa
+    },
+    title: {
+        fontSize: typography.fontSizeTitle,
+        fontWeight: typography.fontWeightBold,
+        color: colors.textPrimary,
+        marginBottom: spacing.extraLarge,
+        textAlign: 'center',
+    },
+    question: {
+        fontSize: typography.fontSizeLarge,
+        color: colors.textPrimary,
+        marginBottom: spacing.large,
+        textAlign: 'center',
+    },
+    label: {
+        fontSize: typography.fontSizeRegular,
+        color: colors.textSecondary,
+        marginBottom: spacing.small,
+        alignSelf: 'flex-start',
+        marginLeft: '10%',
+    },
+    input: {
+        width: '80%',
+        backgroundColor: colors.inputBackground,
+        color: colors.textPrimary,
+        paddingHorizontal: spacing.inputHorizontalPadding,
+        paddingVertical: spacing.inputVerticalPadding,
+        borderRadius: spacing.small,
+        borderWidth: 1,
+        borderColor: colors.inputBorder,
+        marginBottom: spacing.medium,
+        fontSize: typography.fontSizeInput,
+    },
+    buttonContainer: {
+        width: '80%',
+        marginVertical: spacing.small,
+    },
+    errorText: {
+        color: colors.error,
+        fontSize: typography.fontSizeSmall,
+        marginBottom: spacing.medium,
+        textAlign: 'center',
+    },
+});
