@@ -1,3 +1,4 @@
+// BackEnd/Controllers/ProductInfoController.cs
 using BackEnd.Data;
 using BackEnd.Models;
 using Microsoft.AspNetCore.Mvc;
@@ -85,8 +86,28 @@ namespace BackEnd.Controllers
                 return BadRequest("Barcode cannot be empty.");
             }
 
+            // 1. PRIORIDADE: Verificar na base de dados local (Products)
+            var dbProduct = await _context.Products.FindAsync(barcode);
+            if (dbProduct != null)
+            {
+                Console.WriteLine($"Product {barcode} found in local DB (Products table) first.");
+                return Ok(new EcoProductInfoResponse
+                {
+                    Barcode = dbProduct.Barcode,
+                    ProductName = dbProduct.ProductName,
+                    Material = dbProduct.Material,
+                    DisposalTips = dbProduct.DisposalTips,
+                    RecyclingInfo = dbProduct.RecyclingInfo,
+                    SustainabilityImpact = dbProduct.SustainabilityImpact,
+                    DataSource = "DB_Product", // Indica que veio do nosso banco de produtos curados
+                    SuggestionNeeded = false
+                });
+            }
+
+            // 2. Se não encontrou no DB local, tentar API OpenFoodFacts
+            Console.WriteLine($"Product {barcode} not found in local DB. Trying OpenFoodFacts API...");
             var httpClient = _httpClientFactory.CreateClient();
-            httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("EcoScanApp/1.0 (seu.email@example.com)");
+            httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("EcoScanApp/1.0 (seu.email@example.com)"); // Substitua pelo seu email ou URL do projeto
             var apiUrl = $"https://world.openfoodfacts.org/api/v2/product/{barcode}.json?fields=code,product_name,product_name_pt,packaging_tags,packaging,packagings,status_verbose";
 
             OpenFoodFactsApiResponse? apiResponse = null;
@@ -110,6 +131,7 @@ namespace BackEnd.Controllers
 
             if (apiResponse != null && apiResponse.StatusVerbose == "product found" && apiResponse.Product != null)
             {
+                Console.WriteLine($"Product {barcode} found in OpenFoodFacts API.");
                 var productName = !string.IsNullOrWhiteSpace(apiResponse.Product.ProductNamePt) ? apiResponse.Product.ProductNamePt : apiResponse.Product.ProductName;
                 productName ??= "Nome não fornecido pela API";
 
@@ -121,7 +143,7 @@ namespace BackEnd.Controllers
                     var firstPackaging = apiResponse.Product.Packagings.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.Material));
                     if (firstPackaging != null)
                     {
-                        identifiedMaterialKey = firstPackaging.Material!; // Ex: "en:plastic"
+                        identifiedMaterialKey = firstPackaging.Material!;
                         displayMaterial = identifiedMaterialKey.Contains(':') ? identifiedMaterialKey.Split(':')[1] : identifiedMaterialKey;
                         if(!string.IsNullOrEmpty(displayMaterial))
                             displayMaterial = char.ToUpper(displayMaterial[0]) + displayMaterial.Substring(1);
@@ -146,11 +168,13 @@ namespace BackEnd.Controllers
                 else if (!string.IsNullOrWhiteSpace(apiResponse.Product.Packaging))
                 {
                     displayMaterial = apiResponse.Product.Packaging;
+                    // Mapeamento simples de texto livre para identifiedMaterialKey
                     if (displayMaterial.ToLower().Contains("plástico") || displayMaterial.ToLower().Contains("plastic")) identifiedMaterialKey = "en:plastic";
                     else if (displayMaterial.ToLower().Contains("vidro") || displayMaterial.ToLower().Contains("glass")) identifiedMaterialKey = "en:glass";
                     else if (displayMaterial.ToLower().Contains("alumínio") || displayMaterial.ToLower().Contains("aluminium")) identifiedMaterialKey = "en:aluminium";
                     else if (displayMaterial.ToLower().Contains("papelão") || displayMaterial.ToLower().Contains("cardboard")) identifiedMaterialKey = "en:cardboard";
                     else if (displayMaterial.ToLower().Contains("papel") || displayMaterial.ToLower().Contains("paper")) identifiedMaterialKey = "en:paper";
+                    // Adicionar mais mapeamentos conforme necessário
                 }
 
                 var materialGuide = await _context.MaterialRecyclingGuides
@@ -158,6 +182,8 @@ namespace BackEnd.Controllers
 
                 if (materialGuide != null)
                 {
+                    // Produto encontrado na API E temos um guia para o material
+                    Console.WriteLine($"Product {barcode} (API) matched with local MaterialRecyclingGuide for '{identifiedMaterialKey}'.");
                     return Ok(new EcoProductInfoResponse
                     {
                         Barcode = apiResponse.Code ?? barcode,
@@ -172,42 +198,34 @@ namespace BackEnd.Controllers
                 }
                 else
                 {
+                    // Produto encontrado na API, mas não temos um guia para o material que ela retornou.
+                    // Como já verificamos a tabela Products no início e não estava lá,
+                    // precisamos de uma sugestão para que o usuário possa nos dar o material correto (do Picker)
+                    // e o sistema (via aprovação) possa então associar a um guia ou criar um novo produto.
+                    Console.WriteLine($"Product {barcode} (API) found, but no local guide for material '{identifiedMaterialKey}'. Suggestion needed.");
                     return Ok(new EcoProductInfoResponse
                     {
                         Barcode = apiResponse.Code ?? barcode,
-                        ProductName = productName,
-                        Material = displayMaterial,
+                        ProductName = productName, // Nome da API
+                        Material = displayMaterial, // Material da API (o usuário poderá corrigir/selecionar no formulário)
                         DisposalTips = "Guia de descarte não encontrado para este material.",
                         RecyclingInfo = "Guia de reciclagem não encontrado para este material.",
                         SustainabilityImpact = "Guia de sustentabilidade não encontrado para este material.",
-                        DataSource = "API_No_Guide_For_Material",
+                        DataSource = "API_No_Guide_For_Material", // Indica que a API achou, mas nós não temos o guia
                         SuggestionNeeded = true
                     });
                 }
             }
 
-            var dbProduct = await _context.Products.FindAsync(barcode);
-            if (dbProduct != null)
-            {
-                return Ok(new EcoProductInfoResponse
-                {
-                    Barcode = dbProduct.Barcode,
-                    ProductName = dbProduct.ProductName,
-                    Material = dbProduct.Material,
-                    DisposalTips = dbProduct.DisposalTips,
-                    RecyclingInfo = dbProduct.RecyclingInfo,
-                    SustainabilityImpact = dbProduct.SustainabilityImpact,
-                    DataSource = "DB_Product",
-                    SuggestionNeeded = false
-                });
-            }
-
+            // Se chegou aqui, o produto não foi encontrado na nossa tabela Products (verificado no início)
+            // E também não foi encontrado na API OpenFoodFacts (ou a API falhou).
+            Console.WriteLine($"Product {barcode} not found in local DB or API. Suggestion needed.");
             return Ok(new EcoProductInfoResponse
             {
                 Barcode = barcode,
-                ProductName = (apiResponse?.Product?.ProductNamePt ?? apiResponse?.Product?.ProductName) ?? "Produto não encontrado",
+                ProductName = (apiResponse?.Product?.ProductNamePt ?? apiResponse?.Product?.ProductName) ?? "Produto não encontrado", // Tenta usar nome da API se houver, mesmo que "product not found"
                 Material = "Material não identificado",
-                DisposalTips = null,
+                DisposalTips = null, // Deixa nulo para o formulário de sugestão
                 RecyclingInfo = null,
                 SustainabilityImpact = null,
                 DataSource = "Not_Found_Everywhere",

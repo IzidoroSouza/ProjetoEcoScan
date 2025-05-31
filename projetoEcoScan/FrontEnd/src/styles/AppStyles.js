@@ -2,28 +2,29 @@
 import { StyleSheet } from 'react-native';
 
 export const colors = {
-    primary: '#1abc9c',       // Verde água (para destaques, títulos de formulário)
-    secondary: '#1e90ff',     // Azul (para botões secundários como "Escanear Outro")
-    background: '#2c3e50',    // Azul escuro (fundo principal da tela)
-    surface: '#34495e',       // Azul um pouco mais claro (para cards de informação do produto)
-    surfaceForm: '#3e5770',   // Um tom diferente para o container do formulário
-    textPrimary: '#ecf0f1',    // Branco/Cinza bem claro (para a maioria dos textos)
-    textSecondary: '#bdc3c7',  // Cinza mais escuro (para textos menos importantes, placeholders)
-    error: '#e74c3c',         // Vermelho (para caixas de erro)
-    warning: '#f1c40f',       // Amarelo (para mensagens de aviso/usuário)
-    accent: '#2ed573',        // Verde limão (para o botão principal "Escanear")
-    cancel: '#ff4757',        // Vermelho/Rosa (para botões de cancelar)
-    inputBorder: '#1abc9c',    // Cor da borda dos inputs
-    inputBackground: '#2c3e50', // Fundo dos inputs (pode ser o mesmo do app)
-    loadingIndicator: '#00ff00', // Cor do ActivityIndicator
-    cameraBackground: '#000000', // Fundo da tela da câmera
-    cameraOverlayText: '#FFFFFF', // Texto no overlay da câmera
+    primary: '#1abc9c',
+    secondary: '#1e90ff',
+    background: '#2c3e50',
+    surface: '#34495e',
+    surfaceForm: '#3e5770',
+    textPrimary: '#ecf0f1',
+    textSecondary: '#bdc3c7',
+    error: '#e74c3c',
+    warning: '#f1c40f',
+    accent: '#2ed573',
+    cancel: '#ff4757',
+    inputBorder: '#1abc9c',
+    inputBackground: '#2c3e50',
+    loadingIndicator: '#00ff00',
+    cameraBackground: '#000000',
+    cameraOverlayText: '#FFFFFF',
 };
 
 export const typography = {
     fontSizeTitle: 32,
     fontSizeProductTitle: 22,
     fontSizeSuggestionTitle: 20,
+    fontSizeAdminSectionTitle: 24,
     fontSizeLabel: 16,
     fontSizeValue: 15,
     fontSizeMessage: 16,
@@ -44,30 +45,28 @@ export const spacing = {
 };
 
 export const globalStyles = StyleSheet.create({
-    // Containers e Layout
     scrollContainer: {
         flexGrow: 1,
         backgroundColor: colors.background,
     },
-    fullScreenContainer: { // Para câmera, loading inicial
+    fullScreenContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
         backgroundColor: colors.cameraBackground,
     },
-    contentContainer: { // Conteúdo principal dentro da ScrollView
-        flex: 1, // Tenta ocupar o máximo, mas permite scroll se necessário
+    contentContainer: {
+        flex: 1,
         padding: spacing.paddingContent,
         alignItems: 'center',
-        justifyContent: 'center', // Para quando o conteúdo é menor que a tela
+        justifyContent: 'center',
     },
-    centeredMessageContainer: { // Para mensagens como permissão negada
+    centeredMessageContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
         padding: spacing.paddingContent,
     },
-    // Textos Globais
     appTitle: {
         fontSize: typography.fontSizeTitle,
         fontWeight: typography.fontWeightBold,
@@ -87,7 +86,6 @@ export const globalStyles = StyleSheet.create({
         fontWeight: typography.fontWeightBold,
         marginBottom: spacing.marginBottomSection,
     },
-    // Caixas e Botões
     errorBox: {
         marginTop: spacing.marginBottomSection,
         padding: spacing.medium,
@@ -98,7 +96,7 @@ export const globalStyles = StyleSheet.create({
     errorText: {
         fontSize: typography.fontSizeMessage,
         fontWeight: typography.fontWeightBold,
-        color: colors.textPrimary, // Branco para contraste no fundo vermelho
+        color: colors.textPrimary,
         textAlign: 'center',
     },
     errorTextDetails: {
@@ -107,17 +105,44 @@ export const globalStyles = StyleSheet.create({
         textAlign: 'center',
         marginTop: spacing.small,
     },
-    actionButtonContainer: { // Para os botões "Escanear" / "Escanear Outro"
+    actionButtonContainer: {
         marginTop: spacing.large,
         width: '80%',
     },
-    // Activity Indicator
     loadingIndicator: {
         marginVertical: spacing.large,
     },
+    adminSectionContainer: {
+        width: '100%',
+        marginTop: spacing.medium,
+    },
+    adminSectionTitle: {
+        fontSize: typography.fontSizeAdminSectionTitle,
+        fontWeight: typography.fontWeightBold,
+        color: colors.warning,
+        textAlign: 'center',
+        marginBottom: spacing.medium,
+    },
+    suggestionListItem: {
+        backgroundColor: colors.surface,
+        padding: spacing.medium,
+        borderRadius: spacing.small,
+        marginBottom: spacing.medium,
+        width: '100%',
+    },
+    suggestionText: {
+        fontSize: typography.fontSizeLabel,
+        fontWeight: typography.fontWeightBold,
+        color: colors.textPrimary,
+        marginBottom: spacing.small / 2,
+    },
+    suggestionTextSmall: {
+        fontSize: typography.fontSizeValue,
+        color: colors.textSecondary,
+        marginBottom: spacing.small / 2,
+    },
 });
 
-// Estilos específicos que podem ser importados por componentes
 export const cameraScreenStyles = StyleSheet.create({
     camera: {
         ...StyleSheet.absoluteFillObject,
@@ -134,7 +159,7 @@ export const cameraScreenStyles = StyleSheet.create({
     },
     overlayText: {
         color: colors.cameraOverlayText,
-        fontSize: 18, // Pode ser um typography.fontSizeOverlay
+        fontSize: 18,
         textAlign: 'center',
     },
     fixedBottomButtonContainer: {

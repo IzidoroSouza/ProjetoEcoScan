@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\JJUNIOR\\EcoScan\\projetoEcoScan\\BackEnd\\BackEnd\\BackEnd.csproj": {}
+    "C:\\Users\\JJUNIOR\\ecoscan\\projetoecoscan\\backend\\backend\\BackEnd.csproj": {}
   },
   "projects": {
-    "C:\\Users\\JJUNIOR\\EcoScan\\projetoEcoScan\\BackEnd\\BackEnd\\BackEnd.csproj": {
+    "C:\\Users\\JJUNIOR\\ecoscan\\projetoecoscan\\backend\\backend\\BackEnd.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\JJUNIOR\\EcoScan\\projetoEcoScan\\BackEnd\\BackEnd\\BackEnd.csproj",
+        "projectUniqueName": "C:\\Users\\JJUNIOR\\ecoscan\\projetoecoscan\\backend\\backend\\BackEnd.csproj",
         "projectName": "BackEnd",
-        "projectPath": "C:\\Users\\JJUNIOR\\EcoScan\\projetoEcoScan\\BackEnd\\BackEnd\\BackEnd.csproj",
+        "projectPath": "C:\\Users\\JJUNIOR\\ecoscan\\projetoecoscan\\backend\\backend\\BackEnd.csproj",
         "packagesPath": "C:\\Users\\JJUNIOR\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\JJUNIOR\\EcoScan\\projetoEcoScan\\BackEnd\\BackEnd\\obj\\",
+        "outputPath": "C:\\Users\\JJUNIOR\\ecoscan\\projetoecoscan\\backend\\backend\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\JJUNIOR\\AppData\\Roaming\\NuGet\\NuGet.Config"

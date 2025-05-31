@@ -1,12 +1,13 @@
 // FrontEnd/App.js
 import React, { useState, useEffect } from 'react';
-import { View, Text, Alert, Linking, Button, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, Alert, Linking, Button, ActivityIndicator, ScrollView, Platform } from 'react-native';
 import { Camera as CameraUtils, CameraView, CameraType as ActualCameraType } from 'expo-camera';
 
 // Importações de Componentes e Estilos
-import ProductDisplay from './src/components/ProductDisplay';
-import SuggestionForm from './src/components/SuggestionForm';
-import { globalStyles, cameraScreenStyles, colors } from './src/styles/AppStyles';
+import ProductDisplay from './src/componentes/ProductDisplay';
+import SuggestionForm from './src/componentes/SuggestionForm';
+import SuggestionReviewCard from './src/componentes/SuggestionReviewCard';
+import { globalStyles, cameraScreenStyles, colors, spacing, typography } from './src/styles/AppStyles';
 
 // Expo Camera specific imports
 const ExpoCameraComponent = CameraView;
@@ -14,54 +15,65 @@ const requestCameraPermissions = CameraUtils.requestCameraPermissionsAsync;
 const ExpoCameraType = ActualCameraType;
 
 // --- Configurações ---
-const BACKEND_URL = 'http://INSERIR_IP:5291'; // CONFIRME SEU IP E PORTA
-const initialSuggestionDataState = {
+const BACKEND_URL = 'http://INSERIR_IP_DA_MAQUINA:5291'; // CONFIRME SEU IP E PORTA
+
+const initialNewProductSuggestionDataState = {
     barcode: '', productName: '', material: '',
-    disposalTips: '', recyclingInfo: '', sustainabilityImpact: ''
+    // Dicas não são mais parte da sugestão inicial do usuário
+};
+
+const initialReviewFormDataState = { // Para o formulário de revisão/aprovação
+    barcode: '',
+    productName: '',
+    material: '',
+    // Dicas não são editadas aqui, virão do backend com base no material
 };
 
 // --- Componente Principal ---
 export default function App() {
     // Estados da Aplicação
+    const [showReviewSection, setShowReviewSection] = useState(false);
+    const [pendingSuggestions, setPendingSuggestions] = useState([]);
+    const [selectedSuggestionForReview, setSelectedSuggestionForReview] = useState(null);
+    const [reviewFormData, setReviewFormData] = useState(initialReviewFormDataState);
     const [hasPermission, setHasPermission] = useState(null);
     const [cameraActive, setCameraActive] = useState(false);
-    const [scannedData, setScannedData] = useState(null); // Último barcode escaneado
-    const [productInfo, setProductInfo] = useState(null); // Dados do produto para exibição
+    const [scannedData, setScannedData] = useState(null);
+    const [productInfo, setProductInfo] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [userMessage, setUserMessage] = useState(null); // Mensagens para o usuário
+    const [userMessage, setUserMessage] = useState(null);
     const [showSuggestionForm, setShowSuggestionForm] = useState(false);
-    const [suggestionData, setSuggestionData] = useState(initialSuggestionDataState);
+    const [newProductSuggestionData, setNewProductSuggestionData] = useState(initialNewProductSuggestionDataState);
 
-    // Efeito para solicitar permissão da câmera
     useEffect(() => {
         const getCameraPermissions = async () => {
             try {
                 if (typeof requestCameraPermissions !== 'function') {
-                    Alert.alert("Erro de Configuração", "Função de permissão da câmera não encontrada.");
+                    Alert.alert("Erro Config.", "Permissão câmera não encontrada.");
                     setHasPermission(false); return;
                 }
                 const { status } = await requestCameraPermissions();
                 setHasPermission(status === 'granted');
-                if (status !== 'granted') {
-                    Alert.alert("Permissão Necessária", "A permissão da câmera é necessária para escanear códigos.");
-                }
+                if (status !== 'granted') Alert.alert("Permissão Necessária", "Câmera é necessária para escanear.");
             } catch (err) {
-                Alert.alert("Erro de Permissão", "Ocorreu um erro ao solicitar permissão da câmera.");
+                Alert.alert("Erro Permissão", "Erro ao solicitar permissão da câmera.");
                 setHasPermission(false);
             }
         };
         getCameraPermissions();
     }, []);
 
-    // Função para resetar estados
     const resetUIState = (keepLastScan = false) => {
         setProductInfo(null);
         if (!keepLastScan) setScannedData(null);
         setError(null);
         setUserMessage(null);
         setShowSuggestionForm(false);
-        setSuggestionData(initialSuggestionDataState);
+        setNewProductSuggestionData(initialNewProductSuggestionDataState);
+        // Não resetar showReviewSection aqui diretamente, mas sim seus dados internos
+        setSelectedSuggestionForReview(null);
+        setReviewFormData(initialReviewFormDataState);
     };
 
     // --- Lógica de Interação com Backend ---
@@ -77,120 +89,182 @@ export default function App() {
         return await response.json();
     };
 
-    const submitProductSuggestion = async (dataToSubmit) => {
-        console.log("SUBMIT SUGGESTION:", dataToSubmit);
+    const submitNewProductSuggestion = async (dataToSubmit) => {
+        console.log("SUBMIT NEW PRODUCT SUGGESTION:", dataToSubmit);
+        const payload = {
+            barcode: dataToSubmit.barcode,
+            productName: dataToSubmit.productName,
+            material: dataToSubmit.material,
+        };
         const response = await fetch(`${BACKEND_URL}/api/suggestions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(dataToSubmit),
+            body: JSON.stringify(payload),
         });
-        const responseText = await response.text(); // Ler como texto para depuração
-        console.log("Submit Suggestion Response (text):", responseText);
+        const responseText = await response.text();
+        console.log("Submit New Product Suggestion Response (text):", responseText);
         if (!response.ok) {
-            try { // Tenta parsear erro JSON do backend
+            try {
                 const errorData = JSON.parse(responseText);
                 throw new Error(errorData?.message || errorData?.title || `Erro no servidor: ${response.status}`);
-            } catch { // Se não for JSON, usa o texto
+            } catch {
                 throw new Error(responseText || `Erro no servidor: ${response.status}`);
             }
         }
-        return JSON.parse(responseText); // Sucesso, espera JSON
+        return JSON.parse(responseText);
+    };
+
+    const fetchPendingSuggestions = async () => {
+        console.log("FETCHING PENDING SUGGESTIONS");
+        setIsLoading(true);
+        try {
+            const response = await fetch(`${BACKEND_URL}/api/suggestions`);
+            if (!response.ok) {
+                throw new Error(`Erro ao buscar sugestões: ${response.status}`);
+            }
+            const data = await response.json();
+            setPendingSuggestions(data);
+            setError(null);
+        } catch (e) {
+            setError(`Falha ao buscar sugestões: ${e.message}`);
+            setPendingSuggestions([]);
+            Alert.alert("Erro", `Não foi possível carregar as sugestões pendentes.`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const approveSuggestionOnBackend = async (suggestionId, approvalData) => {
+        console.log("APPROVING SUGGESTION:", suggestionId, approvalData);
+        const payloadForApproval = {
+            barcode: approvalData.barcode,
+            productName: approvalData.productName,
+            material: approvalData.material,
+        };
+        const response = await fetch(`${BACKEND_URL}/api/suggestions/${suggestionId}/approve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payloadForApproval),
+        });
+        const responseText = await response.text();
+        console.log("Approve Suggestion Response (text):", responseText);
+        if (!response.ok) {
+            try {
+                const errorData = JSON.parse(responseText);
+                throw new Error(errorData?.message || errorData?.title || `Erro: ${response.status}`);
+            } catch {
+                throw new Error(responseText || `Erro: ${response.status}`);
+            }
+        }
+        return JSON.parse(responseText);
     };
     // --- Fim da Lógica Backend ---
 
-
-    // Manipulador de código escaneado
-    const handleBarcodeScanned = async ({ data }) => { // type não está sendo usado
-        if (isLoading) return; // Evita processamento múltiplo
-
-        setCameraActive(false);
-        setIsLoading(true);
-        resetUIState(true); // Mantém o 'data' escaneado para uso no formulário
-        setScannedData(data);
-
+    const handleBarcodeScanned = async ({ data }) => {
+        if (isLoading) return;
+        setCameraActive(false); setIsLoading(true); resetUIState(true); setScannedData(data);
         try {
             const ecoResponse = await fetchProductInformation(data);
             console.log('Backend Response:', JSON.stringify(ecoResponse, null, 2));
-
             if (ecoResponse.suggestionNeeded) {
                 let initialProductName = '';
-                let initialMaterial = '';
-                if (ecoResponse.dataSource.startsWith("API_")) {
-                    if (ecoResponse.productName && !["Nome não fornecido pela API", "Produto não encontrado", "Produto não cadastrado no banco de dados"].includes(ecoResponse.productName)) {
-                        initialProductName = ecoResponse.productName;
-                    }
-                    if (ecoResponse.material && !["Desconhecido (API)", "Material não identificado", "Desconhecido (DB)"].includes(ecoResponse.material)) {
-                        initialMaterial = ecoResponse.material;
-                    }
+                if (ecoResponse.dataSource.startsWith("API_") && ecoResponse.productName && !["Nome não fornecido pela API", "Produto não encontrado", "Produto não cadastrado no banco de dados"].includes(ecoResponse.productName)) {
+                    initialProductName = ecoResponse.productName;
                 }
-                setSuggestionData({
-                    ...initialSuggestionDataState, barcode: data,
-                    productName: initialProductName, material: initialMaterial
-                });
+                setNewProductSuggestionData({ ...initialNewProductSuggestionDataState, barcode: data, productName: initialProductName });
                 setShowSuggestionForm(true);
-                setUserMessage(ecoResponse.dataSource === "Not_Found_Everywhere"
-                    ? "Produto não encontrado. Ajude-nos cadastrando as informações!"
-                    : "Informações incompletas. Você pode nos ajudar sugerindo os detalhes.");
+                setUserMessage(ecoResponse.dataSource === "Not_Found_Everywhere" ? "Produto não encontrado. Ajude-nos cadastrando!" : "Informações incompletas. Sugira os detalhes.");
             } else {
                 setProductInfo(ecoResponse);
             }
         } catch (e) {
             setError(`Falha ao buscar dados: ${e.message}.`);
-            setSuggestionData({ ...initialSuggestionDataState, barcode: data }); // Prepara para sugestão mesmo em erro
+            setNewProductSuggestionData({ ...initialNewProductSuggestionDataState, barcode: data });
             setShowSuggestionForm(true);
-            setUserMessage("Ocorreu um erro ao buscar as informações. Se desejar, pode tentar cadastrar o produto.");
-        } finally {
-            setIsLoading(false);
-        }
+            setUserMessage("Erro ao buscar. Tente cadastrar o produto.");
+        } finally { setIsLoading(false); }
     };
 
-    // Manipulador de envio de sugestão
-    const handleSuggestionSubmit = async () => {
-        if (!suggestionData.productName || !suggestionData.material) { // Barcode já vem do scan
-            Alert.alert("Campos Obrigatórios", "Nome do Produto e Material Principal são obrigatórios.");
-            return;
+    const handleNewProductSuggestionSubmit = async () => {
+        if (!newProductSuggestionData.productName || !newProductSuggestionData.material) {
+            Alert.alert("Campos Obrigatórios", "Nome do Produto e Material são obrigatórios."); return;
         }
         setIsLoading(true); setError(null); setUserMessage(null);
         try {
-            const result = await submitProductSuggestion(suggestionData);
-            Alert.alert("Sucesso!", result.message || "Obrigado pela sua colaboração!");
-            setShowSuggestionForm(false);
-            resetUIState();
+            const result = await submitNewProductSuggestion(newProductSuggestionData);
+            Alert.alert("Sucesso!", result.message || "Obrigado pela colaboração!");
+            setShowSuggestionForm(false); resetUIState();
         } catch (e) {
-            setError(`Falha ao enviar sugestão: ${e.message}`);
-            Alert.alert("Erro ao Enviar", `Não foi possível enviar. Detalhes: ${e.message}`);
-        } finally {
-            setIsLoading(false);
+            setError(`Falha ao enviar: ${e.message}`); Alert.alert("Erro ao Enviar", `Detalhes: ${e.message}`);
+        } finally { setIsLoading(false); }
+    };
+
+    const handleNewProductSuggestionDataChange = (field, value) => {
+        setNewProductSuggestionData(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleToggleReviewSection = () => {
+        const openingReview = !showReviewSection;
+        setShowReviewSection(openingReview);
+        if (openingReview) {
+            resetUIState(); // Limpa UI principal de scan
+            fetchPendingSuggestions();
+        } else { // Fechando a seção de review
+            setPendingSuggestions([]);
+            setSelectedSuggestionForReview(null);
+            setReviewFormData(initialReviewFormDataState);
         }
     };
 
-    // Atualiza os dados do formulário de sugestão
-    const handleSuggestionDataChange = (field, value) => {
-        setSuggestionData(prev => ({ ...prev, [field]: value }));
+    const handleSelectSuggestionForReview = (suggestion) => {
+        setSelectedSuggestionForReview(suggestion);
+        setReviewFormData({
+            barcode: suggestion.barcode,
+            productName: suggestion.productName,
+            material: suggestion.material,
+        });
     };
 
-    // Abre a câmera
+    const handleReviewFormChange = (field, value) => {
+        setReviewFormData(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleApproveSuggestion = async () => {
+        if (!selectedSuggestionForReview || !reviewFormData) return;
+        if (!reviewFormData.productName || !reviewFormData.material) {
+            Alert.alert("Campos Obrigatórios", "Nome e Material são obrigatórios para aprovar."); return;
+        }
+        setIsLoading(true);
+        try {
+            await approveSuggestionOnBackend(selectedSuggestionForReview.id, reviewFormData);
+            Alert.alert("Sucesso", "Sugestão aprovada e produto processado!");
+            setSelectedSuggestionForReview(null); setReviewFormData(initialReviewFormDataState);
+            fetchPendingSuggestions();
+        } catch (e) {
+            Alert.alert("Erro ao Aprovar", `Detalhes: ${e.message}`);
+        } finally { setIsLoading(false); }
+    };
+
+    const cancelReview = () => {
+        setSelectedSuggestionForReview(null); setReviewFormData(initialReviewFormDataState);
+    };
+
     const openScanner = () => {
         if (hasPermission === null) { Alert.alert("Aguarde", "Verificando permissões..."); return; }
         if (hasPermission === false) {
-            Alert.alert("Sem Permissão", "Habilite a câmera nas configurações do app.",
+            Alert.alert("Sem Permissão", "Habilite a câmera nas configurações.",
                 [{ text: "Configurações", onPress: () => Linking.openSettings() }, { text: "Cancelar" }]
             ); return;
         }
-        resetUIState();
-        setCameraActive(true);
+        resetUIState(); setCameraActive(true);
     };
 
-    // Cancela a ação atual (scan ou formulário) e reseta
-    const cancelCurrentAction = () => {
-        setCameraActive(false);
-        setShowSuggestionForm(false);
-        resetUIState();
+    const cancelCurrentAction = () => { // Usado para cancelar scan ou formulário de nova sugestão
+        setCameraActive(false); setShowSuggestionForm(false); resetUIState();
     };
-
 
     // --- Renderização ---
-    if (hasPermission === null && !cameraActive) { // Tela de Carregamento de Permissão
+    if (hasPermission === null && !cameraActive) {
         return (
             <View style={globalStyles.fullScreenContainer}>
                 <ActivityIndicator size="large" color={colors.loadingIndicator} />
@@ -199,13 +273,13 @@ export default function App() {
         );
     }
 
-    if (cameraActive && hasPermission) { // Tela da Câmera
+    if (cameraActive && hasPermission) {
         return (
             <View style={globalStyles.fullScreenContainer}>
                 <ExpoCameraComponent
                     style={cameraScreenStyles.camera}
-                    type={ExpoCameraType?.back} // Usar o ExpoCameraType.back diretamente
-                    onBarcodeScanned={isLoading ? undefined : handleBarcodeScanned} // Evita scan se já estiver carregando
+                    type={ExpoCameraType?.back}
+                    onBarcodeScanned={isLoading ? undefined : handleBarcodeScanned}
                     barcodeScannerSettings={{
                         barcodeTypes: ["ean13", "ean8", "qr", "upc_a", "upc_e", "code128", "code39", "code93", "codabar", "itf", "pdf417", "aztec", "datamatrix"],
                     }}
@@ -220,60 +294,99 @@ export default function App() {
         );
     }
 
-    // Tela Principal: Resultados, Formulário ou Inicial
     return (
         <ScrollView contentContainerStyle={globalStyles.scrollContainer}>
             <View style={globalStyles.contentContainer}>
                 <Text style={globalStyles.appTitle}>EcoScan</Text>
 
-                {isLoading && (
-                    <>
-                        <ActivityIndicator size="large" color={colors.loadingIndicator} style={globalStyles.loadingIndicator} />
-                        <Text style={globalStyles.messageText}>Buscando informações...</Text>
-                    </>
-                )}
-
-                {userMessage && !isLoading && (
-                    <Text style={[globalStyles.messageText, globalStyles.userMessageEmphasis]}>{userMessage}</Text>
-                )}
-
-                {error && !isLoading && (
-                    <View style={globalStyles.errorBox}>
-                        <Text style={globalStyles.errorText}>Erro:</Text>
-                        <Text style={globalStyles.errorTextDetails}>{error}</Text>
-                    </View>
-                )}
-
-                {showSuggestionForm && !isLoading && (
-                    <SuggestionForm
-                        suggestionData={suggestionData}
-                        onSuggestionDataChange={handleSuggestionDataChange}
-                        onSubmit={handleSuggestionSubmit}
-                        onCancel={cancelCurrentAction}
+                <View style={{ marginBottom: spacing.medium, width: '80%' }}>
+                    <Button
+                        title={showReviewSection ? "Voltar ao Scan de Produtos" : "Revisar Sugestões Pendentes"}
+                        onPress={handleToggleReviewSection}
+                        color={colors.warning}
                     />
-                )}
+                </View>
 
-                {productInfo && !isLoading && !showSuggestionForm && (
-                    <ProductDisplay productInfo={productInfo} />
-                )}
-
-                {!isLoading && !productInfo && !showSuggestionForm && hasPermission === false && (
-                    <View style={globalStyles.centeredMessageContainer}>
-                        <Text style={globalStyles.messageText}>Permissão para usar a câmera foi negada.</Text>
-                        <Button title="Abrir Configurações" onPress={() => Linking.openSettings().catch(err => console.warn("Não foi possível abrir config:", err))} />
+                {showReviewSection && (
+                    <View style={globalStyles.adminSectionContainer}>
+                        <Text style={globalStyles.adminSectionTitle}>Sugestões Pendentes para Revisão</Text>
+                        {isLoading && pendingSuggestions.length === 0 && !selectedSuggestionForReview && <ActivityIndicator size="small" color={colors.loadingIndicator} />}
+                        {selectedSuggestionForReview && reviewFormData ? (
+                            <SuggestionReviewCard
+                                suggestion={selectedSuggestionForReview}
+                                reviewData={reviewFormData}
+                                onReviewDataChange={handleReviewFormChange}
+                                onApprove={handleApproveSuggestion}
+                                onCancelReview={cancelReview}
+                            />
+                        ) : (
+                            !isLoading && pendingSuggestions.length > 0 ? (
+                                pendingSuggestions.map(sugg => (
+                                    <View key={sugg.id} style={globalStyles.suggestionListItem}>
+                                        <Text style={globalStyles.suggestionText}>ID: {sugg.id} - {sugg.productName}</Text>
+                                        <Text style={globalStyles.suggestionTextSmall}>Barcode: {sugg.barcode}</Text>
+                                        <Text style={globalStyles.suggestionTextSmall}>Material Sugerido: {sugg.material}</Text>
+                                        <Button title="Analisar/Aprovar" onPress={() => handleSelectSuggestionForReview(sugg)} color={colors.secondary}/>
+                                    </View>
+                                ))
+                            ) : (
+                                !isLoading && <Text style={globalStyles.messageText}>Nenhuma sugestão pendente para revisão.</Text>
+                            )
+                        )}
+                        {error && <Text style={{color: colors.error, textAlign: 'center', marginTop: 10, width: '100%'}}>{error}</Text>}
                     </View>
                 )}
 
-                {/* Botões de Ação Principais */}
-                {!cameraActive && !isLoading && !showSuggestionForm && (
-                    <View style={globalStyles.actionButtonContainer}>
-                        <Button
-                            title={(productInfo || error || userMessage) ? "Escanear Outro Produto" : "Escanear Código de Barras"}
-                            onPress={openScanner}
-                            disabled={hasPermission === false}
-                            color={(productInfo || error || userMessage) ? colors.secondary : colors.accent}
-                        />
-                    </View>
+                {/* Bloco da UI de Scan Normal - SÓ MOSTRA SE NÃO ESTIVER NA SEÇÃO DE REVISÃO */}
+                {!showReviewSection && (
+                    <>
+                        {isLoading && (
+                            <>
+                                <ActivityIndicator size="large" color={colors.loadingIndicator} style={globalStyles.loadingIndicator} />
+                                <Text style={globalStyles.messageText}>Buscando informações...</Text>
+                            </>
+                        )}
+                        {userMessage && !isLoading && (
+                            <Text style={[globalStyles.messageText, globalStyles.userMessageEmphasis]}>{userMessage}</Text>
+                        )}
+                        {error && !isLoading && (
+                            <View style={globalStyles.errorBox}>
+                                <Text style={globalStyles.errorText}>Erro:</Text>
+                                <Text style={globalStyles.errorTextDetails}>{error}</Text>
+                            </View>
+                        )}
+                        {showSuggestionForm && !isLoading && (
+                            <SuggestionForm
+                                suggestionData={newProductSuggestionData}
+                                onSuggestionDataChange={handleNewProductSuggestionDataChange}
+                                onSubmit={handleNewProductSuggestionSubmit}
+                                onCancel={cancelCurrentAction}
+                            />
+                        )}
+                        {productInfo && !isLoading && !showSuggestionForm && (
+                            <ProductDisplay productInfo={productInfo} />
+                        )}
+                        {!isLoading && !productInfo && !showSuggestionForm && hasPermission === false && (
+                            <View style={globalStyles.centeredMessageContainer}>
+                                <Text style={globalStyles.messageText}>Permissão para usar a câmera foi negada.</Text>
+                                <Button title="Abrir Configurações" onPress={() => Linking.openSettings().catch(err => console.warn("Não foi possível abrir config:", err))} />
+                            </View>
+                        )}
+                        
+                        {/* Botão de Scan Principal - Condição corrigida para só aparecer se não estiver na câmera,
+                            não estiver carregando, não estiver mostrando o formulário de sugestão de NOVO produto,
+                            E NÃO ESTIVER NA SEÇÃO DE REVISÃO */}
+                        {!cameraActive && !isLoading && !showSuggestionForm && !showReviewSection && (
+                             <View style={globalStyles.actionButtonContainer}>
+                                <Button
+                                    title={(productInfo || error || userMessage) ? "Escanear Outro Produto" : "Escanear Código de Barras"}
+                                    onPress={openScanner}
+                                    disabled={hasPermission === false}
+                                    color={(productInfo || error || userMessage) ? colors.secondary : colors.accent}
+                                />
+                            </View>
+                        )}
+                    </>
                 )}
             </View>
         </ScrollView>

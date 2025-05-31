@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "Y4k4JYWS5ZI=",
+  "dgSpecHash": "o5oqy0NFWwM=",
   "success": true,
-  "projectFilePath": "C:\\Users\\JJUNIOR\\EcoScan\\projetoEcoScan\\BackEnd\\BackEnd\\BackEnd.csproj",
+  "projectFilePath": "C:\\Users\\JJUNIOR\\ecoscan\\projetoecoscan\\backend\\backend\\BackEnd.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\JJUNIOR\\.nuget\\packages\\humanizer.core\\2.14.1\\humanizer.core.2.14.1.nupkg.sha512",
     "C:\\Users\\JJUNIOR\\.nuget\\packages\\microsoft.bcl.asyncinterfaces\\6.0.0\\microsoft.bcl.asyncinterfaces.6.0.0.nupkg.sha512",

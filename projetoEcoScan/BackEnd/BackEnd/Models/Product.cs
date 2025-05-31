@@ -1,4 +1,4 @@
-using System; // Para DateTime
+using System;
 using System.ComponentModel.DataAnnotations;
 
 namespace BackEnd.Models
@@ -12,7 +12,7 @@ namespace BackEnd.Models
         public string ProductName { get; set; } = string.Empty;
 
         [Required]
-        public string Material { get; set; } = string.Empty;
+        public string Material { get; set; } = string.Empty; // Material principal amigável (ex: "Plástico", "Vidro")
 
         public string? DisposalTips { get; set; }
         public string? RecyclingInfo { get; set; }
